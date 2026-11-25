@@ -460,7 +460,7 @@ async function ensureEscrowFloat() {
   } catch (e) { console.warn('Escrow float check failed (fund it at faucet.solana.com):', e.message); }
 }
 
-server.listen(CFG.port, () => {
+server.listen(CFG.port, '0.0.0.0', () => {
   console.log(`ZStrike server on http://localhost:${CFG.port}  (ws: /ws)  cluster=${CFG.cluster} lobby=${CFG.lobbySize} entry=$${CFG.entryUsd} testMode=${CFG.testMode}`);
   ensureEscrowFloat(); solUsd().then((p) => console.log('SOL/USD', p.usd, p.source));
 });

@@ -1,6 +1,6 @@
 // ZStrike - client (single-player vs bots + online deathmatch client)
 import * as THREE from 'three';
-import { WEAPONS, SHOP_ITEMS, CLUSTER, SERVER_URL } from './config.js';
+import { WEAPONS, SHOP_ITEMS, CLUSTER, SERVER_URL, PUBLIC_SERVER_URL } from './config.js';
 import { MAPS, DEFAULT_MAP, createMap, rayHitPlayer } from './map.js';
 import { flowField, flowDir } from './ai.js';
 import * as Wallet from './wallet.js';
@@ -461,21 +461,35 @@ function gameOverSolo() {
 // ---------------------------------------------------------------- online client
 const online = {
   ws: null, id: null, remotes: new Map(), myKills: 0, endsAt: 0, quote: null, inMatch: false,
-  url() {
-    if (SERVER_URL) return SERVER_URL;
-    return (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
+  urls() {
+    if (SERVER_URL) return [SERVER_URL];
+    const same = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
+    const list = location.protocol.startsWith('http') ? [same] : [];
+    if (PUBLIC_SERVER_URL && !list.includes(PUBLIC_SERVER_URL)) list.push(PUBLIC_SERVER_URL);
+    return list;
   },
-  connect() {
+  open(url, timeoutMs) {
     return new Promise((resolve, reject) => {
-      if (this.ws && this.ws.readyState === 1) return resolve();
-      let ws;
-      try { ws = new WebSocket(this.url()); } catch (e) { return reject(e); }
-      this.ws = ws;
-      ws.onopen = () => { this.wasOpen = true; resolve(); this.send({ t: 'hello', name: shortName() }); };
-      ws.onerror = () => reject(new Error('No se pudo conectar al servidor'));
-      ws.onclose = () => { if (this.inMatch) { banner('Desconectado'); } this.ws = null; if (this.wasOpen) onlineInfo('Desconectado del servidor.', true); this.wasOpen = false; };
-      ws.onmessage = (ev) => this.onMsg(JSON.parse(ev.data));
+      let ws, done = false;
+      try { ws = new WebSocket(url); } catch (e) { return reject(e); }
+      const t = setTimeout(() => { if (!done) { done = true; try { ws.close(); } catch (_) {} reject(new Error('timeout')); } }, timeoutMs);
+      ws.onopen = () => { if (!done) { done = true; clearTimeout(t); resolve(ws); } };
+      ws.onerror = () => { if (!done) { done = true; clearTimeout(t); reject(new Error('No se pudo conectar al servidor')); } };
     });
+  },
+  async connect() {
+    if (this.ws && this.ws.readyState === 1) return;
+    let ws = null, last = null;
+    for (const url of this.urls()) {
+      // a sleeping free-tier server can take ~30-60 s to wake up
+      if (url === PUBLIC_SERVER_URL && !url.includes(location.host)) onlineInfo('Conectando al servidor online… (si estaba dormido puede tardar hasta 1 minuto)');
+      try { ws = await this.open(url, url === PUBLIC_SERVER_URL ? 75000 : 8000); break; } catch (e) { last = e; }
+    }
+    if (!ws) throw last || new Error('No se pudo conectar al servidor');
+    this.ws = ws; this.wasOpen = true;
+    ws.onclose = () => { if (this.inMatch) { banner('Desconectado'); } this.ws = null; if (this.wasOpen) onlineInfo('Desconectado del servidor.', true); this.wasOpen = false; };
+    ws.onmessage = (ev) => this.onMsg(JSON.parse(ev.data));
+    this.send({ t: 'hello', name: shortName() });
   },
   send(m) { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(m)); },
   clearRemotes() { this.remotes.forEach((r) => scene.remove(r.mesh)); this.remotes.clear(); },
@@ -598,7 +612,7 @@ async function openOnline() {
   onlineMsg(''); $('lobby-players').innerHTML = ''; $('online').classList.remove('in-lobby'); $('lobby-vote').classList.add('hidden');
   refreshOnlineWallet();
   try { await online.connect(); online.send({ t: 'info' }); }
-  catch (e) { onlineInfo('No hay servidor online disponible aquí (la versión estática solo tiene modo SOLO).', true); }
+  catch (e) { onlineInfo('No se pudo conectar al servidor online. Inténtalo otra vez en un minuto (el servidor gratis se duerme cuando no hay jugadores).', true); }
 }
 function refreshOnlineWallet() {
   const pk = Wallet.getPublicKey(), prov = Wallet.getProvider();

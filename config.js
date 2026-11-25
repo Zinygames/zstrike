@@ -40,6 +40,10 @@ export const SHOP_ITEMS = [
   { id: 'dmg3',   name: 'Daño +25% (Nv 3)',  desc: 'Daño máximo.',       requires: 'dmg2',    priceCoins: null, priceSol: 0.04 },
 ];
 
-// Multiplayer server URL. '' = same host that serves this page
-// (works when server/server.js serves the game). Example: 'wss://zstrike.onrender.com'
+// Multiplayer server URL.
+// SERVER_URL: force one server ('' = auto).
+// Auto mode: first try the same host that serves this page (works on Render, where
+// server/server.js serves the game), then fall back to PUBLIC_SERVER_URL (used when the
+// page is hosted elsewhere, e.g. itch.io or GitHub Pages).
 export const SERVER_URL = '';
+export const PUBLIC_SERVER_URL = 'wss://zstrike.onrender.com/ws';
