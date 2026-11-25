@@ -464,7 +464,11 @@ const online = {
   urls() {
     if (SERVER_URL) return [SERVER_URL];
     const same = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
-    const list = location.protocol.startsWith('http') ? [same] : [];
+    let pubHost = ''; try { pubHost = new URL(PUBLIC_SERVER_URL).host; } catch (_) {}
+    // Same-origin only when this page is served by the game server itself (or a local dev server);
+    // on static hosts (itch.io, GitHub Pages) go straight to PUBLIC_SERVER_URL.
+    const local = /^(localhost|127\.0\.0\.1|\[::1\]|192\.168\.|10\.)/.test(location.hostname);
+    const list = location.protocol.startsWith('http') && (location.host === pubHost || local || !pubHost) ? [same] : [];
     if (PUBLIC_SERVER_URL && !list.includes(PUBLIC_SERVER_URL)) list.push(PUBLIC_SERVER_URL);
     return list;
   },

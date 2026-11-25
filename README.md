@@ -94,10 +94,14 @@ Todo queda registrado en `server/data/ledger.jsonl`.
 - **Solo el juego (modo SOLO + tienda):** la carpeta funciona como sitio estático.
   - **GitHub Pages:** sube la carpeta (sin `server/secrets` ni `server/data`) a un repo → Settings → Pages → rama `main`, carpeta `/`.
   - **itch.io:** comprime en ZIP `index.html`, `style.css`, `*.js`, `vendor/` → nuevo proyecto → tipo HTML → "This file will be played in the browser".
+- **En vivo ahora (devnet):** https://zstrike.onrender.com (Render, plan gratis). El servidor sirve el juego y el WebSocket (`wss://zstrike.onrender.com/ws`).
+  - El plan gratis **se duerme tras ~15 min sin uso**: la primera carga tarda ~30–60 s.
+  - El servicio se conectó con la URL pública del repo, así que **un push no redespliega solo**: usa "Manual Deploy" en el dashboard de Render (o conecta el repo con la app de GitHub de Render para auto-deploy).
+  - La llave del escrow está solo en la variable `ESCROW_SECRET_KEY` del servicio (nunca en el repo).
 - **Con online (servidor Node):**
   - **Render** (plan gratis, se duerme si no hay uso): nuevo Web Service → Root Directory `server` → Build `npm install` → Start `node server.js`. Pon la llave del escrow en la variable de entorno `ESCROW_SECRET_KEY` (no en el repo).
   - **Fly.io**, **Railway** o **Koyeb** también tienen planes gratis o de prueba (los límites cambian, revisa antes).
-  - Si el juego está en GitHub Pages y el servidor en otro sitio, pon `SERVER_URL = 'wss://tu-servidor/ws'` en `config.js`.
+  - Si el juego está en itch.io/GitHub Pages, el botón ONLINE usa `PUBLIC_SERVER_URL` de `config.js` (ahora `wss://zstrike.onrender.com/ws`). `SERVER_URL` fuerza un servidor fijo.
 - **Demo rápida:** túnel gratis de Cloudflare: `cloudflared tunnel --url http://localhost:8080` (el enlace cambia cada vez).
 
 ## Pasar a mainnet (dinero real) — leer antes
