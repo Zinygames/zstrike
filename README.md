@@ -34,7 +34,7 @@ Arriba a la derecha: `Asesino [icono de arma] Víctima` (💀 = headshot), desap
 Online usa los nombres que manda el servidor; tu nombre se elige antes de entrar (por defecto tu wallet corta o "Jugador123"). En solo, los bots se llaman "Bot Alpha", "Bot Bravo", etc.
 
 ### Votación de mapa (online)
-En la sala de espera aparecen los 5 mapas como tarjetas con votos en vivo. Cuando el lobby se llena empieza una cuenta regresiva (10 s, `VOTE_SECONDS`).
+En la sala de espera aparecen los 6 mapas como tarjetas con votos en vivo. Cuando el lobby se llena empieza una cuenta regresiva (10 s, `VOTE_SECONDS`).
 El **servidor** cuenta los votos (solo jugadores humanos), gana la mayoría y los empates se rompen al azar. La partida empieza en ese mapa.
 
 ### Mapas (3 carriles, lineales, para PvP de habilidad)
@@ -43,6 +43,13 @@ El **servidor** cuenta los votos (solo jugadores humanos), gana la mayoría y lo
 - **Zigzag:** carriles más estrechos con cruces alternados.
 - **Fortaleza Ámbar** (naranja/ámbar): fuerte central elevado (1.5 m) con escaleras al norte y al sur, parapetos y bloque de cobertura arriba; plataformas de 1 m en los carriles laterales; pasillos de flanqueo detrás de muros con puertas; cajas de alturas variadas.
 - **Ciudadela Carmesí** (carmesí/cian): foso central, carriles laterales altos (1 m), pasarelas de 2 m sobre los muros con escaleras y rampas hacia el foso, flancos estrechos tras muros con aberturas, pilares y cajas en el foso.
+
+- **Barrio Neón** (morado oscuro con neón cian/magenta): arena chica de barrio para combate cerrado (10 jugadores). Dos casas de dos pisos frente a frente
+  cruzando una calle central: planta baja con cocina, sala, puerta del frente, trasera y lateral; escalera a un **segundo piso tipo loft** con ventanas iluminadas
+  hacia la calle y hacia el pasillo lateral (puedes saltar por la ventana a la calle o bajar por la baranda a la sala). Garaje con auto, patios traseros con
+  cobertizo y cercas, pasillos laterales que rodean las casas para flanquear, y en la calle un bus con ventanas de neón, autos y jardineras.
+  Simetría rotacional de 180°: cada equipo tiene exactamente la misma casa, garaje y patio. (El motor es un mapa de alturas, así que el piso de arriba es un
+  loft al lado de los cuartos de abajo, no encima.)
 
 Los bots usan un flow field que respeta alturas (suben escalones de 0.5 m, bajan de cualquier altura), así que suben a plataformas y pasarelas.
 

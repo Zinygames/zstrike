@@ -1,14 +1,16 @@
 // Shared arena maps + physics helpers. Imported by the browser client AND the
 // Node server, so hit detection / line of sight are identical on both sides.
-// All maps are LINEAR THREE-LANE layouts (left / middle / right lanes joined by
-// a few crossings, spawns at the two ends), mostly open sightlines for skill PvP.
+// Most maps are LINEAR THREE-LANE layouts (left / middle / right lanes joined by
+// a few crossings, spawns at the two ends). 'barrio' is a compact suburb arena
+// with 180°-rotational symmetry (two houses facing across a street).
 
 export const WALL_H = 4;
 // Max height a player/bot walks up without jumping (0.5-high stairs/ramps are walkable,
 // 1-high crates still need a jump).
 export const STEP = 0.55;
 
-// Block kinds: 0 floor, 1 outer wall, 2 divider/pillar, 3 crate, 4 platform/catwalk, 5 stairs/ramp, 6 accent cover
+// Block kinds: 0 floor, 1 outer wall, 2 divider/pillar, 3 crate, 4 platform/catwalk, 5 stairs/ramp, 6 accent cover,
+// 7/8 optional glowing (unlit) blocks: windows, neon trims, lights. A theme lists them in `glow`.
 // Color themes (blocky neon). Maps without a theme use DEFAULT_THEME.
 export const DEFAULT_THEME = {
   floor: ['#0f2a22', '#14f195'], bg: 0x120626,
@@ -117,6 +119,50 @@ export const MAPS = {
       h.mirrorZ((z) => { const open = (z >= 12 && z <= 13) || (z >= 25 && z <= 27); if (z >= 8 && !open) h.symX(3, z, 2.5, 6); }, 6, L / 2);
       // trench cover: pillars + crates of different heights
       for (const [x, z, hh, k] of [[10, 12, 3, 2], [12, 22, 1, 3], [11, 27, 0.5, 3], [10, 31, 1.5, 3]]) h.sym(x, z, hh, k);
+    },
+  },
+  barrio: {
+    name: 'Barrio Neón', desc: 'Dos casas de dos pisos frente a frente, calle con autos y bus, patios y garajes.',
+    w: 33, l: 46, lanes: [6.5, 16.5, 26.5],
+    theme: {
+      floor: ['#140a24', '#3fe3ff'], bg: 0x0d0618,
+      1: ['#1c0f33', '#ff3df2'], 2: ['#2a1650', '#3fe3ff'], 3: ['#1e2a3a', '#7df9ff'],
+      4: ['#3a1f5e', '#ff3df2'], 5: ['#2d2d4a', '#c9a6ff'], 6: ['#4a1240', '#ff3df2'],
+      7: ['#0f8fae', '#7df9ff'], 8: ['#b0249f', '#ff8af6'], glow: [7, 8],
+      strip: 0xff3df2, preview: ['#140a24', '#ff3df2', '#7b4fd6', '#7df9ff', '#b07dff', '#c9a6ff', '#ff3df2', '#3fe3ff', '#ff8af6'],
+    },
+    // 180° rotational symmetry: every block written at (x,z) is also written at (W-1-x, L-1-z),
+    // so the south team's house/garage/backyard match the north team's exactly.
+    build(set, m) {
+      const W = m.w, L = m.l;
+      const R = (x0, x1, z0, z1, hh, k) => { for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) { set(x, z, hh, k); set(W - 1 - x, L - 1 - z, hh, k); } };
+      const WALL = 4, WIN = 2.9, SILL = 1;
+      // ---- house (x 4..15, z 6..15): ground-floor rooms + upstairs loft (h 2) with street windows
+      R(4, 15, 6, 6, WALL, 2); R(9, 10, 6, 6, 0, 0);                 // back wall + back door
+      R(4, 4, 6, 15, WALL, 2); R(4, 4, 11, 13, WIN, 7);             // west wall + upstairs side windows
+      R(15, 15, 6, 15, WALL, 2); R(15, 15, 7, 8, 0, 0); R(15, 15, 12, 12, SILL, 7); // east wall, side door, window
+      R(4, 15, 15, 15, WALL, 2);                                     // front wall (street side)
+      R(5, 9, 15, 15, WIN, 7);                                       // upstairs front windows over the street
+      R(12, 13, 15, 15, 0, 0); R(11, 11, 15, 15, SILL, 7); R(14, 14, 15, 15, SILL, 7); // front door + ground windows
+      R(5, 9, 10, 14, 2, 4);                                         // upstairs loft floor
+      R(5, 6, 7, 7, 0.5, 5); R(5, 6, 8, 8, 1, 5); R(5, 6, 9, 9, 1.5, 5); // stairs up to the loft
+      R(10, 10, 10, 11, WIN, 8);                                     // loft railing (drop to living room at z 12-14)
+      R(12, 14, 7, 7, SILL, 3);                                      // kitchen counter
+      R(12, 12, 11, 12, 0.8, 3);                                     // sofa
+      // ---- garage (x 19..27, z 9..15): open door to the street, side door, parked car
+      R(19, 27, 9, 9, WALL, 2); R(19, 19, 9, 15, WALL, 2); R(19, 19, 11, 12, 0, 0); R(27, 27, 9, 15, WALL, 2);
+      R(19, 20, 15, 15, WALL, 2); R(26, 27, 15, 15, WALL, 2); R(21, 25, 15, 15, 0, 0);
+      R(22, 24, 11, 13, 1.2, 6); R(22, 22, 13, 13, 1.2, 8); R(24, 24, 13, 13, 1.2, 8); // car + headlights
+      R(26, 26, 10, 12, 1.5, 3);                                     // tool shelves
+      // ---- backyards: shed, low fences (spawn cells x 6-7 / 16-17 / 26-27, z 2-5 stay clear)
+      R(12, 14, 1, 2, 2.5, 3); R(11, 14, 4, 4, 1.2, 3); R(19, 19, 1, 3, 1.2, 3);
+      R(29, 31, 1, 2, 2.5, 3); R(20, 24, 7, 7, 1.2, 3); R(21, 21, 4, 4, 1, 3);
+      R(1, 2, 8, 8, 1, 3); R(30, 31, 6, 6, 1, 3);                    // side-path crates
+      // ---- street (z 16..29): bus in the middle, cars, planters
+      R(13, 19, 22, 23, 2.2, 6); for (const x of [14, 16, 18]) R(x, x, 22, 23, 2.2, 7); // bus with lit windows
+      R(7, 9, 18, 19, 1.2, 6); R(9, 9, 18, 19, 1.2, 7);             // car + lights
+      R(22, 24, 17, 18, 1.2, 6); R(22, 22, 17, 18, 1.2, 8);         // driveway car
+      R(3, 4, 21, 21, 0.8, 3); R(11, 11, 19, 19, 0.8, 3); R(27, 27, 20, 20, 0.8, 3); // planters / mailbox
     },
   },
 };

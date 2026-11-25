@@ -38,7 +38,9 @@ export function flowDir(map, dist, pos, tx, tz) {
     const d = dist[ni + nj * W];
     if (d < 0 || !canStep(map, i, j, ni, nj)) continue;
     // no corner cutting: both orthogonal cells must be passable too
-    if (di && dj && (dist[ni + j * W] < 0 || dist[i + nj * W] < 0 || !canStep(map, i, j, ni, j) || !canStep(map, i, j, i, nj))) continue;
+    // and no cutting a corner over a ledge (would slide off narrow stairs/catwalks)
+    if (di && dj && (dist[ni + j * W] < 0 || dist[i + nj * W] < 0 || !canStep(map, i, j, ni, j) || !canStep(map, i, j, i, nj) ||
+      Math.abs(cellH(map, ni, j) - cellH(map, i, j)) > STEP || Math.abs(cellH(map, i, nj) - cellH(map, i, j)) > STEP)) continue;
     if (d < best) { best = d; bx = ni + 0.5; bz = nj + 0.5; }
   }
   const dx = bx - pos.x, dz = bz - pos.z, len = Math.hypot(dx, dz) || 1;

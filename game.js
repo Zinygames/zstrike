@@ -71,12 +71,16 @@ function pixelTex(base, accent, seed, opts = {}) {
 }
 // Per-theme block materials (cached by map theme).
 const matCache = new Map();
+const BLOCK_KINDS = [1, 2, 3, 4, 5, 6, 7, 8];
 function themeMats(theme) {
   if (matCache.has(theme)) return matCache.get(theme);
   const mats = {};
-  for (const k of [1, 2, 3, 4, 5, 6]) {
+  for (const k of BLOCK_KINDS) {
+    if (!theme[k]) continue;
     const [base, accent] = theme[k];
-    mats[k] = new THREE.MeshLambertMaterial({ map: pixelTex(base, accent, 3 + k * 4, { border: true }) });
+    const tex = pixelTex(base, accent, 3 + k * 4, { border: true });
+    // glowing kinds (windows / neon trims) are unlit so they read as light sources
+    mats[k] = (theme.glow || []).includes(k) ? new THREE.MeshBasicMaterial({ map: tex }) : new THREE.MeshLambertMaterial({ map: tex });
   }
   matCache.set(theme, mats); return mats;
 }
@@ -96,7 +100,8 @@ function buildWorld(id) {
   // one instance per 1-high block, plus a partial block for fractional tops (stairs/ramps)
   const box = new THREE.BoxGeometry(1, 1, 1); const m4 = new THREE.Matrix4();
   const S = new THREE.Vector3(), P = new THREE.Vector3(), Q = new THREE.Quaternion();
-  for (const k of [1, 2, 3, 4, 5, 6]) {
+  for (const k of BLOCK_KINDS) {
+    if (!mats[k]) continue;
     const parts = [];
     for (let i = 0; i < map.w; i++) for (let j = 0; j < map.l; j++) {
       if (map.kind[i + j * map.w] !== k) continue;
