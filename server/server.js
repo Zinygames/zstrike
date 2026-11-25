@@ -95,7 +95,7 @@ async function solUsd() {
 const usdToLamports = (usd, p) => Math.ceil((usd / p) * LAMPORTS);
 
 // ------------------------------------------------------------ static file server
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.json': 'application/json', '.md': 'text/markdown; charset=utf-8', '.ico': 'image/x-icon' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.json': 'application/json', '.md': 'text/markdown; charset=utf-8', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json' };
 const server = http.createServer((req, res) => {
   let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
   if (p === '/health') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ ok: true, lobbies: lobbies.size, cluster: CFG.cluster })); }
@@ -175,7 +175,7 @@ function pickSpawn(L, p) {
 }
 function respawn(L, p) {
   const [x, z] = pickSpawn(L, p);
-  Object.assign(p, { x, y: 0, z, hp: MAX_HP, alive: true, lastStateAt: Date.now(), yaw: z > L.map.l / 2 ? 0 : Math.PI });
+  Object.assign(p, { x, y: L.map.groundUnder(x, z, 0.3), z, hp: MAX_HP, alive: true, lastStateAt: Date.now(), yaw: z > L.map.l / 2 ? 0 : Math.PI });
   lobbyBroadcast(L, { t: 'respawn', id: p.id, x, z });
 }
 
@@ -192,7 +192,7 @@ function startMatch(L) {
   let i = 0;
   for (const p of L.players.values()) {
     const s = spawns[(i % 2 ? Math.floor(i / 2) + L.map.spawns[0].length : Math.floor(i / 2)) % spawns.length]; i++;
-    Object.assign(p, { x: s[0], y: 0, z: s[1], hp: MAX_HP, alive: true, lastStateAt: Date.now() });
+    Object.assign(p, { x: s[0], y: L.map.groundUnder(s[0], s[1], 0.3), z: s[1], hp: MAX_HP, alive: true, lastStateAt: Date.now() });
     if (p.conn) send(p.conn, { t: 'start', map: L.mapId, secondsLeft: CFG.matchSeconds, spawn: { x: s[0], z: s[1] }, board: board(L) });
   }
   console.log(`[${L.id}] match started (${L.paid ? 'PAID' : 'test'}) map=${L.mapId} players=${L.players.size}`);
@@ -256,7 +256,7 @@ function botThink(L, b, dt) {
     if (Math.random() < 0.01) ai.strafe *= -1;
     dir = { x: -fz * ai.strafe + fx * (td > 6 ? 0.6 : -0.2), z: fx * ai.strafe + fz * (td > 6 ? 0.6 : -0.2) };
   } else dir = flowDir(L.map, ai.flow, b, tgt.x, tgt.z);
-  const sp = 4.2 * dt; L.map.moveCircle(b, dir.x * sp, dir.z * sp, 0.3);
+  const sp = 4.2 * dt; L.map.moveWalker(b, dir.x * sp, dir.z * sp, 0.3);
   b.yaw = Math.atan2(-(tgt.x - b.x), -(tgt.z - b.z));
   ai.cd -= dt;
   if (los && ai.cd <= 0) {

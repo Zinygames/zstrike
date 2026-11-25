@@ -34,13 +34,17 @@ Arriba a la derecha: `Asesino [icono de arma] Víctima` (💀 = headshot), desap
 Online usa los nombres que manda el servidor; tu nombre se elige antes de entrar (por defecto tu wallet corta o "Jugador123"). En solo, los bots se llaman "Bot Alpha", "Bot Bravo", etc.
 
 ### Votación de mapa (online)
-En la sala de espera aparecen los 3 mapas como tarjetas con votos en vivo. Cuando el lobby se llena empieza una cuenta regresiva (10 s, `VOTE_SECONDS`).
+En la sala de espera aparecen los 5 mapas como tarjetas con votos en vivo. Cuando el lobby se llena empieza una cuenta regresiva (10 s, `VOTE_SECONDS`).
 El **servidor** cuenta los votos (solo jugadores humanos), gana la mayoría y los empates se rompen al azar. La partida empieza en ese mapa.
 
 ### Mapas (3 carriles, lineales, para PvP de habilidad)
 - **Tres Carriles:** 3 carriles con 3 cruces, casi sin cobertura.
 - **Puente Neon:** carril central largo y abierto, laterales con muros bajos que se pueden saltar.
 - **Zigzag:** carriles más estrechos con cruces alternados.
+- **Fortaleza Ámbar** (naranja/ámbar): fuerte central elevado (1.5 m) con escaleras al norte y al sur, parapetos y bloque de cobertura arriba; plataformas de 1 m en los carriles laterales; pasillos de flanqueo detrás de muros con puertas; cajas de alturas variadas.
+- **Ciudadela Carmesí** (carmesí/cian): foso central, carriles laterales altos (1 m), pasarelas de 2 m sobre los muros con escaleras y rampas hacia el foso, flancos estrechos tras muros con aberturas, pilares y cajas en el foso.
+
+Los bots usan un flow field que respeta alturas (suben escalones de 0.5 m, bajan de cualquier altura), así que suben a plataformas y pasarelas.
 
 Los spawns están en los dos extremos. En solo se escoge en el menú; online se vota en el lobby.
 
@@ -67,8 +71,20 @@ map.js, ai.js             mapas, colisiones, IA (compartidos con el servidor)
 config.js                 TREASURY, red, armas y precios
 vendor/                   three.js, @solana/web3.js, polyfill de Buffer
 server/server.js          servidor: archivos + lobbies + escrow
-server/test/              pruebas con clientes simulados
+server/test/              pruebas con clientes simulados (sim.js, map-sim.js, paid-reject.js)
+manifest.webmanifest, sw.js, icons/   app instalable (PWA)
+tools/make-icons.py       genera los íconos desde la portada
 ```
+
+## Instalar como app (PWA)
+ZStrike se puede instalar en la pantalla de inicio y abre a pantalla completa, en horizontal:
+- **iPhone (Safari):** botón Compartir → *Agregar a pantalla de inicio*.
+- **Android (Chrome):** menú ⋮ → *Instalar app* (o *Agregar a pantalla principal*).
+
+Incluye `manifest.webmanifest` (fullscreen, landscape, tema morado oscuro/cian), íconos de 192/512 (más uno *maskable*), `apple-touch-icon` y un service worker (`sw.js`)
+que guarda los archivos estáticos para que cargue rápido y el modo solo funcione sin internet. **No** toca `/ws`, `/health`, el RPC de Solana ni otros dominios.
+Usa "red primero": cuando hay internet siempre baja la versión nueva. Si cambias la lista de archivos, sube `CACHE` en `sw.js`.
+Solo funciona en HTTPS (Render, GitHub Pages, itch.io) o en `localhost`.
 
 ## Correr en tu compu
 ```bash

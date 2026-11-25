@@ -69,11 +69,17 @@ function pixelTex(base, accent, seed, opts = {}) {
   t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
-const MATS = {
-  1: new THREE.MeshLambertMaterial({ map: pixelTex('#2a1450', '#9945ff', 7, { border: true }) }),
-  2: new THREE.MeshLambertMaterial({ map: pixelTex('#3b1d6e', '#14f195', 11, { border: true }) }),
-  3: new THREE.MeshLambertMaterial({ map: pixelTex('#5a3a1a', '#ffb347', 3, { border: true }) }),
-};
+// Per-theme block materials (cached by map theme).
+const matCache = new Map();
+function themeMats(theme) {
+  if (matCache.has(theme)) return matCache.get(theme);
+  const mats = {};
+  for (const k of [1, 2, 3, 4, 5, 6]) {
+    const [base, accent] = theme[k];
+    mats[k] = new THREE.MeshLambertMaterial({ map: pixelTex(base, accent, 3 + k * 4, { border: true }) });
+  }
+  matCache.set(theme, mats); return mats;
+}
 
 // ---------------------------------------------------------------- world
 let map = null, mapId = LS.get('map', DEFAULT_MAP), worldGroup = null;
@@ -81,23 +87,31 @@ if (!MAPS[mapId]) mapId = DEFAULT_MAP;
 function buildWorld(id) {
   if (worldGroup) { scene.remove(worldGroup); worldGroup.traverse((o) => o.geometry?.dispose()); }
   map = createMap(id); worldGroup = new THREE.Group();
-  const floorTex = pixelTex('#0f2a22', '#14f195', 5, { grid: true });
+  const th = map.theme, mats = themeMats(th);
+  scene.background.setHex(th.bg); scene.fog.color.setHex(th.bg);
+  const floorTex = pixelTex(th.floor[0], th.floor[1], 5, { grid: true });
   floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping; floorTex.repeat.set(map.w, map.l);
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(map.w, map.l), new THREE.MeshLambertMaterial({ map: floorTex }));
   floor.rotation.x = -Math.PI / 2; floor.position.set(map.w / 2, 0, map.l / 2); worldGroup.add(floor);
+  // one instance per 1-high block, plus a partial block for fractional tops (stairs/ramps)
   const box = new THREE.BoxGeometry(1, 1, 1); const m4 = new THREE.Matrix4();
-  for (const k of [1, 2, 3]) {
-    const cells = [];
-    for (let i = 0; i < map.w; i++) for (let j = 0; j < map.l; j++)
-      if (map.kind[i + j * map.w] === k) for (let y = 0; y < map.heights[i + j * map.w]; y++) cells.push([i, y, j]);
-    if (!cells.length) continue;
-    const im = new THREE.InstancedMesh(box, MATS[k], cells.length);
-    cells.forEach(([i, y, j], n) => im.setMatrixAt(n, m4.makeTranslation(i + 0.5, y + 0.5, j + 0.5)));
+  const S = new THREE.Vector3(), P = new THREE.Vector3(), Q = new THREE.Quaternion();
+  for (const k of [1, 2, 3, 4, 5, 6]) {
+    const parts = [];
+    for (let i = 0; i < map.w; i++) for (let j = 0; j < map.l; j++) {
+      if (map.kind[i + j * map.w] !== k) continue;
+      const h = map.heights[i + j * map.w];
+      let y = 0; for (; y + 1 <= h + 1e-6; y++) parts.push([i, y, j, 1]);
+      if (h - y > 1e-3) parts.push([i, y, j, h - y]);
+    }
+    if (!parts.length) continue;
+    const im = new THREE.InstancedMesh(box, mats[k], parts.length);
+    parts.forEach(([i, y, j, hh], n) => im.setMatrixAt(n, m4.compose(P.set(i + 0.5, y + hh / 2, j + 0.5), Q, S.set(1, hh, 1))));
     worldGroup.add(im);
   }
-  // neon strips on top of the outer wall
-  const strip = new THREE.Mesh(new THREE.BoxGeometry(map.w, 0.08, 0.08), new THREE.MeshBasicMaterial({ color: 0x14f195 }));
-  for (const z of [0.5, map.l - 0.5]) { const s = strip.clone(); s.position.set(map.w / 2, 4.02, z); worldGroup.add(s); }
+  // neon strips on top of the end walls
+  const strip = new THREE.Mesh(new THREE.BoxGeometry(map.w, 0.08, 0.08), new THREE.MeshBasicMaterial({ color: th.strip }));
+  for (const z of [0.5, map.l - 0.5]) { const s2 = strip.clone(); s2.position.set(map.w / 2, 4.02, z); worldGroup.add(s2); }
   scene.add(worldGroup);
 }
 
@@ -401,7 +415,7 @@ function updateBots(dt) {
       if (d < 0.8 && d > 0) { dir.x += sx / d * 0.6; dir.z += sz / d * 0.6; }
     }
     const stop = los && toP < 7;
-    if (!stop) map.moveCircle(e.pos, dir.x * e.speed * dt, dir.z * e.speed * dt, 0.35);
+    if (!stop) map.moveWalker(e.pos, dir.x * e.speed * dt, dir.z * e.speed * dt, 0.35);
     e.mesh.rotation.y = Math.atan2(-(player.pos.x - e.pos.x), -(player.pos.z - e.pos.z));
     e.walk += dt * (stop ? 0 : 10);
     const legL = e.mesh.getObjectByName('legL'), legR = e.mesh.getObjectByName('legR');
@@ -738,7 +752,12 @@ function goMenu(sec) {
 
 function mapPreview(id) {
   const m = createMap(id), c = document.createElement('canvas'); c.width = m.l; c.height = m.w; const g = c.getContext('2d');
-  for (let i = 0; i < m.w; i++) for (let j = 0; j < m.l; j++) { g.fillStyle = ['#0b1a24', '#3fe3ff', '#9fb4c4', '#ffb347'][m.kind[i + j * m.w]]; g.fillRect(j, i, 1, 1); }
+  const pal = m.theme.preview;
+  for (let i = 0; i < m.w; i++) for (let j = 0; j < m.l; j++) {
+    const k = m.kind[i + j * m.w], h = m.heights[i + j * m.w];
+    g.fillStyle = pal[k] || pal[0]; g.globalAlpha = k === 0 ? 1 : Math.min(1, 0.45 + h / 4); g.fillRect(j, i, 1, 1);
+  }
+  g.globalAlpha = 1;
   return c;
 }
 // Lobby map vote cards (counts come from the server; the server picks the winner)
@@ -893,4 +912,4 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // Debug/test hook (used by the headless screenshot script).
-window.__zstrike = { setTimeScale: (v) => (timeScale = v), startSolo, openShop, openOnline, goMenu, selectSection, setShowWeapon, switchWeapon, addKill, damageEnemy, player, get enemies() { return enemies; }, get mode() { return mode; }, online, look };
+window.__zstrike = { camera, setMap: (id) => { mapId = id; buildWorld(id); }, setTimeScale: (v) => (timeScale = v), startSolo, openShop, openOnline, goMenu, selectSection, setShowWeapon, switchWeapon, addKill, damageEnemy, player, get enemies() { return enemies; }, get mode() { return mode; }, online, look };

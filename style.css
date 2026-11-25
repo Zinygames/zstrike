@@ -200,3 +200,7 @@ html,body { font-family:"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; }
 .hm-sec[data-sec="arms"] .arm-row .own { width:auto; font-size:9px; }
 .hm-sec[data-sec="arms"] .arm-row .st { flex-basis:100%; display:grid; grid-template-columns:auto 1fr; gap:0 6px; align-items:center; }
 .hm-sec[data-sec="arms"] .arm-row .bar2 { margin:0; }
+/* 5+ maps: horizontally scrollable card rows (touch friendly) */
+.hm-maps, .vote-cards { overflow-x:auto; overflow-y:hidden; scroll-snap-type:x proximity; padding-bottom:4px; -webkit-overflow-scrolling:touch; scrollbar-width:thin; }
+.hm-maps .map-card, .vote-card { flex:0 0 150px; scroll-snap-align:start; }
+.hm-maps .map-card span { height:3.75em; }
