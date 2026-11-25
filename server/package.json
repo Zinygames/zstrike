@@ -1,0 +1,11 @@
+{
+  "name": "zstrike-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ZStrike multiplayer server: lobbies, server-authoritative deathmatch, devnet entry/payout escrow",
+  "main": "server.js",
+  "scripts": { "start": "node server.js", "sim": "node test/sim.js", "e2e": "node test/paid-e2e.js" },
+  "engines": { "node": ">=18" },
+  "dependencies": { "@solana/web3.js": "1.95.3", "ws": "^8.18.0" }
+}

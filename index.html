@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0b0614">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>ZStrike</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Crect width=%2216%22 height=%2216%22 fill=%22%239945ff%22/%3E%3Ctext x=%223%22 y=%2213%22 font-size=%2212%22 fill=%22%2314f195%22%3EZ%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
+<script src="vendor/buffer-polyfill.min.js"></script>
+<script src="vendor/solana-web3.iife.min.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<!-- HUD -->
+<div id="hud" class="hidden">
+  <div id="hud-left">
+    <div class="bar"><div id="hp-fill" class="fill hp"></div><span id="hp-text">100</span></div>
+    <div class="bar small" id="armor-bar"><div class="fill armor" style="width:100%"></div><span>ARMADURA</span></div>
+  </div>
+  <div id="hud-center"><div id="wave-text">OLEADA 1</div><div id="weapon-text">Pistola Neon</div></div>
+  <div id="hud-right">
+    <div id="score-text">0 pts</div>
+    <div id="coins-text">🪙 0</div>
+    <button id="btn-shop" class="pill">TIENDA</button>
+  </div>
+  <div id="crosshair"></div>
+  <div id="hit-marker"></div>
+  <div id="dmg-flash"></div>
+  <div id="banner"></div>
+  <div id="mp-timer" class="hidden">5:00</div>
+  <div id="scoreboard" class="hidden"></div>
+  <div id="killfeed"></div>
+  <div id="respawn-text"></div>
+</div>
+
+<!-- Touch controls -->
+<div id="touch" class="hidden">
+  <div id="joy-zone"><div id="joy-base"><div id="joy-knob"></div></div></div>
+  <div id="look-zone"></div>
+  <button id="btn-fire" class="tbtn big">🔫</button>
+  <button id="btn-jump" class="tbtn">⤒</button>
+  <button id="btn-switch" class="tbtn">⇄</button>
+</div>
+
+<!-- Start menu (cinematic style) -->
+<div id="menu" class="hmenu">
+  <div class="hm-vignette"></div>
+  <header class="hm-top">
+    <div class="hm-logo"><span>Z</span>STRIKE</div>
+    <div class="hm-user">
+      <button id="hm-name" class="hm-chip"><i class="dot"></i><b id="hm-name-text">Jugador</b></button>
+      <button id="hm-wallet" class="hm-chip">◎ <span id="hm-wallet-text">Conectar wallet</span></button>
+    </div>
+  </header>
+  <nav class="hm-nav" id="hm-nav">
+    <button data-sec="solo" class="sel">JUGAR SOLO</button>
+    <button data-sec="online">ONLINE</button>
+    <button data-sec="shop">TIENDA</button>
+    <button data-sec="arms">ARMAS</button>
+    <button data-sec="settings">AJUSTES</button>
+  </nav>
+  <section class="hm-panel">
+    <div class="hm-sec on" data-sec="solo">
+      <h3>JUGAR SOLO</h3><p>Sobrevive oleadas de bots y gana monedas para la tienda.</p>
+      <div class="hm-label">MAPA</div><div class="hm-maps"></div>
+      <button class="hm-go" id="btn-play">INICIAR ▶</button>
+    </div>
+    <div class="hm-sec" data-sec="online">
+      <h3>ONLINE · DEATHMATCH</h3><p>Lobby de 10 jugadores. Gana quien tenga más kills. Red: <b id="cluster-label">devnet</b> (SOL de prueba).</p>
+      <div class="hm-label">MAPA</div><div class="hm-maps"></div>
+      <button class="hm-go" id="btn-online">ENTRAR AL LOBBY ▶</button>
+    </div>
+    <div class="hm-sec" data-sec="shop">
+      <h3>TIENDA</h3><p>Armas y mejoras con monedas del juego o con SOL (devnet). Precios fijos, sin cajas de botín.</p>
+      <div id="hm-shop-summary" class="hm-small"></div>
+      <button class="hm-go" id="btn-menu-shop">ABRIR TIENDA ▶</button>
+    </div>
+    <div class="hm-sec" data-sec="arms">
+      <h3>ARMAS</h3><div id="hm-arms"></div>
+    </div>
+    <div class="hm-sec" data-sec="settings">
+      <h3>AJUSTES</h3>
+      <label class="hm-field">NOMBRE DE JUGADOR<input id="set-name" maxlength="16" autocomplete="off" spellcheck="false"></label>
+      <label class="hm-field">SENSIBILIDAD <span id="set-sens-val"></span><input id="set-sens" type="range" min="0.4" max="2.5" step="0.1"></label>
+      <label class="hm-field">GRÁFICOS<select id="set-quality"><option value="alta">Alta</option><option value="baja">Baja (más fluido)</option></select></label>
+      <p class="hm-small" id="controls-hint"></p>
+    </div>
+  </section>
+  <footer class="hm-foot">DEMO v1 · SOLANA DEVNET · SIN DINERO REAL</footer>
+</div>
+
+<!-- Online lobby -->
+<div id="online" class="overlay hidden">
+  <div class="panel online-panel">
+    <h2>ONLINE · DEATHMATCH</h2>
+    <p id="online-info">Conectando al servidor…</p>
+    <label class="hm-field inline">TU NOMBRE<input id="online-name" maxlength="16" autocomplete="off" spellcheck="false"></label>
+    <div class="wallet-actions" id="online-wallet">
+      <button id="btn-online-connect" class="pill sol">Conectar Phantom</button>
+      <a id="btn-online-phantom" class="pill sol hidden" target="_self">Abrir en Phantom</a>
+      <span id="online-wallet-status"></span>
+    </div>
+    <div class="menu-btns" id="join-btns">
+      <button id="btn-join-paid" class="big-btn" disabled>PAGAR ENTRADA</button>
+      <button id="btn-join-test" class="big-btn alt">PRUEBA GRATIS (con bots)</button>
+    </div>
+    <div id="online-msg"></div>
+    <div id="lobby-vote" class="hidden">
+      <div class="vote-head"><span class="hm-label">VOTA EL MAPA</span><span id="vote-timer"></span></div>
+      <div id="vote-cards" class="vote-cards"></div>
+    </div>
+    <div id="lobby-players"></div>
+    <button id="btn-online-back" class="pill">← Volver</button>
+    <p class="devnet-note">⚠️ DEVNET: SOL de prueba, sin dinero real. Las entradas pagadas con premio en dinero real pueden considerarse apuestas en EE.UU. y Puerto Rico: consulta a un abogado antes de mainnet. Nunca te pediremos tu frase semilla.</p>
+  </div>
+</div>
+
+<!-- Game over -->
+<div id="gameover" class="overlay hidden">
+  <div class="panel">
+    <h2>GAME OVER</h2>
+    <p id="go-stats"></p>
+    <button id="btn-restart" class="big-btn">REINICIAR</button>
+    <button id="btn-go-shop" class="pill">TIENDA</button>
+    <button id="btn-go-menu" class="pill">MENÚ</button>
+  </div>
+</div>
+
+<!-- Shop -->
+<div id="shop" class="overlay hidden">
+  <div class="panel shop-panel">
+    <div class="shop-head">
+      <h2>TIENDA</h2>
+      <div id="shop-coins">🪙 0</div>
+      <button id="btn-close-shop" class="pill">✕</button>
+    </div>
+    <div id="wallet-box">
+      <div id="wallet-status">Wallet no conectada</div>
+      <div class="wallet-actions">
+        <button id="btn-connect" class="pill sol">Conectar Phantom</button>
+        <a id="btn-open-phantom" class="pill sol hidden" target="_self">Abrir en Phantom</a>
+        <a id="btn-airdrop" class="pill hidden" href="https://faucet.solana.com" target="_blank" rel="noopener">Pedir SOL de prueba (faucet)</a>
+        <button id="btn-disconnect" class="pill hidden">Desconectar</button>
+      </div>
+      <div class="devnet-note">⚠️ Devnet: SOL de prueba, sin dinero real. Pon Phantom en modo testnet/devnet. Nunca te pediremos tu frase semilla.</div>
+    </div>
+    <div id="shop-msg"></div>
+    <div id="shop-list"></div>
+  </div>
+</div>
+
+<div id="rotate-hint">Gira el teléfono 📱↻ para jugar en horizontal</div>
+
+<script type="module" src="game.js"></script>
+</body>
+</html>
