@@ -72,14 +72,24 @@ const logLedger = (o) => fs.appendFileSync(path.join(DATA, 'ledger.jsonl'), JSON
 
 // ------------------------------------------------------------ SOL/USD price (CoinGecko free API + fallback)
 let price = { usd: CFG.fallbackSolUsd, source: 'fallback', at: 0 };
+// Free price sources, tried in order (some APIs rate-limit or block cloud IPs).
+const PRICE_SOURCES = [
+  ['coingecko', 'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd', (j) => j?.solana?.usd],
+  ['coinbase', 'https://api.coinbase.com/v2/prices/SOL-USD/spot', (j) => parseFloat(j?.data?.amount)],
+  ['kraken', 'https://api.kraken.com/0/public/Ticker?pair=SOLUSD', (j) => parseFloat(Object.values(j?.result || {})[0]?.c?.[0])],
+];
 async function solUsd() {
   if (Date.now() - price.at < 60_000) return price;
-  try {
-    const r = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd', { signal: AbortSignal.timeout(4000) });
-    const j = await r.json();
-    if (j?.solana?.usd > 0) price = { usd: j.solana.usd, source: 'coingecko', at: Date.now() };
-    else throw new Error('bad price');
-  } catch { price = { usd: price.source === 'coingecko' ? price.usd : CFG.fallbackSolUsd, source: price.source === 'coingecko' ? 'coingecko-stale' : 'fallback', at: Date.now() }; }
+  for (const [name, url, pick] of PRICE_SOURCES) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(4000), headers: { accept: 'application/json', 'user-agent': 'zstrike-server' } });
+      const v = pick(await r.json());
+      if (v > 0) { price = { usd: v, source: name, at: Date.now() }; return price; }
+    } catch { /* try next source */ }
+  }
+  // all sources failed: keep the last live price (marked stale) or use the configured fallback
+  price = price.source === 'fallback' ? { usd: CFG.fallbackSolUsd, source: 'fallback', at: Date.now() }
+    : { usd: price.usd, source: price.source.replace(/-stale$/, '') + '-stale', at: Date.now() };
   return price;
 }
 const usdToLamports = (usd, p) => Math.ceil((usd / p) * LAMPORTS);
