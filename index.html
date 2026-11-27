@@ -44,6 +44,15 @@
   <div id="respawn-text"></div>
   <div id="scope"><i></i></div>
   <div id="ammo"><b id="ammo-n">30</b><span id="ammo-m">/30</span><div id="ammo-w"></div></div>
+  <div id="mm-wrap" class="v2only"><canvas id="minimap" width="132" height="132"></canvas><div id="mm-lv"><b id="mm-lvn">LV 1</b><div class="mm-xp"><i id="mm-xpf"></i></div></div></div>
+  <div id="mhud" class="v2only">
+    <div class="mh-row"><span id="mh-time">0:00</span><div id="mh-obj"></div></div>
+    <div class="mh-row sc"><b id="mh-us">0</b><div class="mh-bar us"><i id="mh-us-bar"></i></div></div>
+    <div class="mh-row sc"><b id="mh-them">0</b><div class="mh-bar them"><i id="mh-them-bar"></i></div></div>
+  </div>
+  <div id="streaks" class="v2only"></div>
+  <div id="medal"></div>
+  <div id="flash-ov"></div>
 </div>
 
 <!-- Touch controls -->
@@ -55,6 +64,8 @@
   <button id="btn-switch" class="tbtn">⇄</button>
   <button id="btn-ads" class="tbtn">◎</button>
   <button id="btn-reload" class="tbtn">↻</button>
+  <button id="btn-nade" class="tbtn v2only">💣</button>
+  <button id="btn-flash" class="tbtn v2only">✺</button>
 </div>
 
 <!-- Start menu (cinematic style) -->
@@ -113,7 +124,7 @@
 <!-- Online lobby -->
 <div id="online" class="overlay hidden">
   <div class="panel online-panel">
-    <h2>ONLINE · DEATHMATCH</h2>
+    <h2 id="online-title">ONLINE · DEATHMATCH</h2>
     <p id="online-info">Conectando al servidor…</p>
     <label class="hm-field inline">TU NOMBRE<input id="online-name" maxlength="16" autocomplete="off" spellcheck="false"></label>
     <div class="wallet-actions" id="online-wallet">
@@ -142,6 +153,7 @@
     <h2>GAME OVER</h2>
     <p id="go-stats"></p>
     <button id="btn-restart" class="big-btn">REINICIAR</button>
+    <button id="btn-go-hq" class="big-btn alt">VOLVER AL HQ</button>
     <button id="btn-go-shop" class="pill">TIENDA</button>
     <button id="btn-go-menu" class="pill">MENÚ</button>
   </div>

@@ -11,9 +11,9 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import * as web3 from '@solana/web3.js';
-import { createMap, MAPS, DEFAULT_MAP, rayHitPlayer } from '../map.js';
-import { flowField, flowDir } from '../ai.js';
-import { WEAPONS } from '../config.js';
+import { createMap, MAPS, DEFAULT_MAP } from '../map.js';
+import { MODES } from '../config.js';
+import { initMatch, newPlayer, beginMatch, tickMatch, handleMsg, board, setLoadout } from '../match.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -42,6 +42,7 @@ const CFG = {
   fallbackSolUsd: +(E.FALLBACK_SOL_USD || 150),
   lobbyTimeoutMin: +(E.LOBBY_TIMEOUT_MIN || 15),
   voteSeconds: +(E.VOTE_SECONDS || 10),
+  modeLobbySize: +(E.MODE_LOBBY_SIZE || 8),
 };
 if (CFG.cluster !== 'devnet' && E.ALLOW_MAINNET !== 'I_HAVE_LEGAL_ADVICE') {
   console.error('Refusing to start: v1 is DEVNET ONLY (see README legal warning).'); process.exit(1);
@@ -113,21 +114,23 @@ const server = http.createServer((req, res) => {
 });
 
 // ------------------------------------------------------------ game state
-const TICK = 50, EYE = 1.55, MAX_HP = 100, RESPAWN_MS = 3000, SPEED = 6;
+const TICK = 50;
 const lobbies = new Map();
 const BOT_NAMES = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Golf', 'Hotel', 'India', 'Juliet', 'Kilo', 'Lima'];
 let nextId = 1;
 const newId = (p) => p + (nextId++).toString(36);
 
-function makeLobby({ paid, mapId, size }) {
+function makeLobby({ paid, mapId, size, mode = null }) {
   const id = newId('L');
   const L = { id, paid, mapId: MAPS[mapId] ? mapId : DEFAULT_MAP, size, players: new Map(), votes: new Map(), state: 'waiting', createdAt: Date.now(), potLamports: 0, endsAt: 0, countdownAt: 0 };
   L.map = createMap(L.mapId);
+  // gameplay (hits, damage, streaks, objectives, bots) lives in the shared match module
+  initMatch(L, { mode: paid ? null : mode, seconds: mode ? undefined : CFG.matchSeconds, bcast: (m) => lobbyBroadcast(L, m), sendTo: (p, m) => { if (p.conn) send(p.conn, m); }, onEnd: (L2, res) => endMatch(L2, res) });
   lobbies.set(id, L); return L;
 }
 function lobbyBroadcast(L, m) { const s = JSON.stringify(m); for (const p of L.players.values()) if (p.conn?.ws.readyState === 1) p.conn.ws.send(s); }
 function lobbySummary(L) {
-  return { t: 'lobby', id: L.id, size: L.size, state: L.state, map: L.mapId, paid: L.paid,
+  return { t: 'lobby', id: L.id, size: L.size, state: L.state, map: L.mapId, paid: L.paid, mode: L.mode,
     countdown: L.state === 'countdown' ? Math.ceil((L.countdownAt - Date.now()) / 1000) : 0,
     maps: Object.keys(MAPS), votes: voteCounts(L),
     players: [...L.players.values()].map((p) => ({ id: p.id, name: p.name, bot: p.bot, vote: L.votes.get(p.id) || null })) };
@@ -149,34 +152,12 @@ function resolveVote(L) {
   L.mapId = pick; L.map = createMap(pick);
   return { map: pick, counts: c, tie: tied.length > 1, tied };
 }
-function board(L) { return [...L.players.values()].map((p) => ({ id: p.id, name: p.name, kills: p.kills, deaths: p.deaths, bot: p.bot })); }
 
 function addPlayer(L, { conn, name, bot = false, pubkey = null, entryLamports = 0, entrySig = null }) {
-  const p = { id: bot ? newId('B') : conn.id, name, conn, bot, pubkey, entryLamports, entrySig,
-    x: 0, y: 0, z: 0, yaw: 0, pitch: 0, hp: MAX_HP, alive: true, kills: 0, deaths: 0, lastKillAt: 0,
-    cdUntil: 0, respawnAt: 0, lastStateAt: Date.now(), side: L.players.size % 2, ai: bot ? { cd: 1, flowAt: 0, flow: null, target: null, strafe: Math.random() < 0.5 ? 1 : -1 } : null };
-  L.players.set(p.id, p);
+  const p = newPlayer(L, { id: bot ? newId('B') : conn.id, conn, name, bot, pubkey, entryLamports, entrySig });
   if (conn) conn.lobby = L;
   L.potLamports += entryLamports;
   return p;
-}
-
-function pickSpawn(L, p) {
-  const all = [...L.map.spawns[0], ...L.map.spawns[1]];
-  // spawn as far as possible from living opponents
-  let best = all[0], bestD = -1;
-  for (const s of all) {
-    let dmin = 1e9;
-    for (const o of L.players.values()) if (o !== p && o.alive) dmin = Math.min(dmin, Math.hypot(o.x - s[0], o.z - s[1]));
-    const d = dmin + Math.random() * 3;
-    if (d > bestD) { bestD = d; best = s; }
-  }
-  return best;
-}
-function respawn(L, p) {
-  const [x, z] = pickSpawn(L, p);
-  Object.assign(p, { x, y: L.map.groundUnder(x, z, 0.3), z, hp: MAX_HP, alive: true, lastStateAt: Date.now(), yaw: z > L.map.l / 2 ? 0 : Math.PI });
-  lobbyBroadcast(L, { t: 'respawn', id: p.id, x, z });
 }
 
 function maybeStart(L) {
@@ -187,89 +168,12 @@ function maybeStart(L) {
 function startMatch(L) {
   const vote = resolveVote(L);
   lobbyBroadcast(L, { t: 'mapResult', ...vote, name: MAPS[vote.map].name });
-  L.state = 'playing'; L.endsAt = Date.now() + CFG.matchSeconds * 1000;
-  const spawns = [...L.map.spawns[0], ...L.map.spawns[1]];
-  let i = 0;
-  for (const p of L.players.values()) {
-    const s = spawns[(i % 2 ? Math.floor(i / 2) + L.map.spawns[0].length : Math.floor(i / 2)) % spawns.length]; i++;
-    Object.assign(p, { x: s[0], y: L.map.groundUnder(s[0], s[1], 0.3), z: s[1], hp: MAX_HP, alive: true, lastStateAt: Date.now() });
-    if (p.conn) send(p.conn, { t: 'start', map: L.mapId, secondsLeft: CFG.matchSeconds, spawn: { x: s[0], z: s[1] }, board: board(L) });
-  }
-  console.log(`[${L.id}] match started (${L.paid ? 'PAID' : 'test'}) map=${L.mapId} players=${L.players.size}`);
-}
-
-// ------------------------------------------------------------ combat (server-authoritative)
-function fire(L, p, wIdx, o, d) {
-  const w = WEAPONS[wIdx]; const now = Date.now();
-  if (!w || !p.alive || L.state !== 'playing') return;
-  if (wIdx > 2) return; // v1 lobbies (paid / free test): only the three v1 weapons
-  if (now < p.cdUntil) return;                          // fire-rate enforced server-side
-  p.cdUntil = now + w.fireRate * 1000 * 0.85;
-  const eye = { x: p.x, y: p.y + EYE, z: p.z };
-  if (Math.hypot(o.x - eye.x, o.y - eye.y, o.z - eye.z) > 1.2) o = eye; // don't trust client origin
-  const len = Math.hypot(d.x, d.y, d.z); if (!(len > 1e-6) || !Number.isFinite(len)) return;
-  d = { x: d.x / len, y: d.y / len, z: d.z / len };
-  const wallT = L.map.rayWallDistance(o, d, w.range);
-  let best = null;
-  for (const t of L.players.values()) {
-    if (t === p || !t.alive) continue;
-    const h = rayHitPlayer(o, d, t);
-    if (h && h.t < wallT && (!best || h.t < best.h.t)) best = { t, h };
-  }
-  const endT = best ? best.h.t : wallT;
-  const e = { x: o.x + d.x * endT, y: o.y + d.y * endT, z: o.z + d.z * endT };
-  lobbyBroadcast(L, { t: 'fx', from: p.id, w: wIdx, o, e, exp: w.kind === 'rocket' });
-  if (w.kind === 'rocket') {
-    for (const t of L.players.values()) {
-      if (t === p || !t.alive) continue;
-      const c = { x: t.x, y: t.y + 0.9, z: t.z };
-      const dist = Math.hypot(c.x - e.x, c.y - e.y, c.z - e.z);
-      if (dist < w.splash && L.map.lineOfSight({ x: e.x - d.x * 0.1, y: Math.max(e.y, 0.1), z: e.z - d.z * 0.1 }, c))
-        damage(L, p, t, w.damage * (1 - (dist / w.splash) * 0.6), false, wIdx);
-    }
-  } else if (best) damage(L, p, best.t, w.damage * (best.h.head ? 2 : 1), best.h.head, wIdx);
-}
-function damage(L, by, t, amount, head, wIdx = 0) {
-  t.hp -= amount;
-  lobbyBroadcast(L, { t: 'hit', by: by.id, target: t.id, dmg: Math.round(amount), hp: Math.max(0, Math.round(t.hp)) });
-  if (t.hp <= 0 && t.alive) {
-    t.alive = false; t.hp = 0; t.deaths++; t.respawnAt = Date.now() + RESPAWN_MS;
-    by.kills++; by.lastKillAt = Date.now();
-    lobbyBroadcast(L, { t: 'kill', killer: by.id, victim: t.id, head, w: wIdx });
-    lobbyBroadcast(L, { t: 'score', board: board(L) });
-  }
-}
-
-// ------------------------------------------------------------ server bots (test lobbies only)
-function botThink(L, b, dt) {
-  if (!b.alive) return;
-  const ai = b.ai, now = Date.now();
-  // nearest living opponent
-  let tgt = null, td = 1e9;
-  for (const o of L.players.values()) if (o !== b && o.alive) { const d = Math.hypot(o.x - b.x, o.z - b.z); if (d < td) { td = d; tgt = o; } }
-  if (!tgt) return;
-  const eye = { x: b.x, y: b.y + EYE, z: b.z }, tEye = { x: tgt.x, y: tgt.y + 1.2, z: tgt.z };
-  const los = td < 30 && L.map.lineOfSight(eye, tEye);
-  if (now > ai.flowAt || ai.target !== tgt.id) { ai.flow = flowField(L.map, tgt.x, tgt.z); ai.flowAt = now + 500; ai.target = tgt.id; }
-  let dir;
-  if (los && td < 12) { // strafe while fighting
-    const fx = (tgt.x - b.x) / td, fz = (tgt.z - b.z) / td;
-    if (Math.random() < 0.01) ai.strafe *= -1;
-    dir = { x: -fz * ai.strafe + fx * (td > 6 ? 0.6 : -0.2), z: fx * ai.strafe + fz * (td > 6 ? 0.6 : -0.2) };
-  } else dir = flowDir(L.map, ai.flow, b, tgt.x, tgt.z);
-  const sp = 4.2 * dt; L.map.moveWalker(b, dir.x * sp, dir.z * sp, 0.3);
-  b.yaw = Math.atan2(-(tgt.x - b.x), -(tgt.z - b.z));
-  ai.cd -= dt;
-  if (los && ai.cd <= 0) {
-    ai.cd = 0.35 + Math.random() * 0.6;
-    const err = 0.06 + td * 0.004;
-    const dx = tEye.x - eye.x + (Math.random() - 0.5) * err * td, dy = tEye.y - eye.y + (Math.random() - 0.5) * err * td * 0.5, dz = tEye.z - eye.z + (Math.random() - 0.5) * err * td;
-    fire(L, b, td < 10 ? 1 : 0, eye, { x: dx, y: dy, z: dz });
-  }
+  beginMatch(L);
+  console.log(`[${L.id}] match started (${L.paid ? 'PAID' : 'test'}) mode=${L.mode || 'v1-ffa'} map=${L.mapId} players=${L.players.size}`);
 }
 
 // ------------------------------------------------------------ match end + payout
-async function endMatch(L) {
+async function endMatch(L, res = {}) {
   L.state = 'ended';
   const ranked = [...L.players.values()].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths || a.lastKillAt - b.lastKillAt);
   const winner = ranked[0];
@@ -279,7 +183,7 @@ async function endMatch(L) {
     try { payout = await payWinner(L, winner); }
     catch (e) { payout = { error: String(e.message || e) }; logLedger({ type: 'payout-error', lobby: L.id, error: payout.error }); console.error('payout failed', e); }
   } else payout = { note: L.paid ? 'Sin ganador válido.' : 'Partida de prueba: sin premio en SOL.' };
-  lobbyBroadcast(L, { t: 'end', board: board(L), winner: winner && { id: winner.id, name: winner.name }, payout });
+  lobbyBroadcast(L, { t: 'end', board: board(L), winner: winner && { id: winner.id, name: winner.name }, payout, mode: L.mode, winTeam: res.winTeam ?? null, sc: res.sc || null });
   console.log(`[${L.id}] match ended. winner=${winner?.name} kills=${winner?.kills}`, payout);
   for (const p of L.players.values()) if (p.conn) p.conn.lobby = null;
   setTimeout(() => lobbies.delete(L.id), 5000);
@@ -393,21 +297,28 @@ wss.on('connection', (ws) => {
         lobbyBroadcast(lobby, lobbySummary(lobby)); maybeStart(lobby);
         break;
       }
-      case 'state': {
-        if (!p || !p.alive || L.state !== 'playing') return;
-        const x = +m.x, y = +m.y, z = +m.z; if (![x, y, z].every(Number.isFinite)) return;
-        const dt = Math.max(0.016, (now - p.lastStateAt) / 1000); p.lastStateAt = now;
-        const dist = Math.hypot(x - p.x, z - p.z);
-        // anti-teleport / anti-wallhack movement check
-        if (dist > SPEED * dt * 1.6 + 0.4 || y < -0.1 || y > 5 || L.map.blocked(x, z, 0.25, y)) {
-          send(c, { t: 'correct', x: p.x, y: p.y, z: p.z }); return;
+      // gameplay messages: movement check, shots, reloads, scorestreaks, grenades... (shared match module decides)
+      case 'state': case 'shot': case 'reload': case 'streak': case 'nade': case 'fall': case 'loadout':
+        if (L && p && L.state === 'playing') handleMsg(L, p, m);
+        else if (L && p && m.t === 'loadout') setLoadout(L, p, m.lo);
+        break;
+      case 'joinMode': { // free v2 modes (TDM / FFA / DOM / S&D / CTF): no wagering, bots fill the lobby
+        const mode = String(m.mode); if (!MODES[mode] || c.lobby) return;
+        let lobby = [...lobbies.values()].find((x) => !x.paid && x.mode === mode && x.state === 'waiting' && x.players.size < x.size);
+        if (!lobby) {
+          lobby = makeLobby({ paid: false, mapId: m.map, size: CFG.modeLobbySize, mode });
+          setTimeout(() => {
+            if (lobby.state !== 'waiting' || ![...lobby.players.values()].some((q) => !q.bot)) return;
+            let n = 0; while (lobby.players.size < lobby.size) addPlayer(lobby, { name: 'Bot ' + BOT_NAMES[n++ % BOT_NAMES.length], bot: true });
+            lobbyBroadcast(lobby, lobbySummary(lobby)); maybeStart(lobby);
+          }, 4000);
         }
-        Object.assign(p, { x, y, z, yaw: +m.yaw || 0, pitch: +m.pitch || 0 });
+        const pl = addPlayer(lobby, { conn: c, name: c.name }); setLoadout(lobby, pl, m.lo);
+        castVote(lobby, c.id, m.map);
+        send(c, { t: 'joined', lobbyId: lobby.id, you: c.id, map: lobby.mapId, paid: false, mode, voteSeconds: CFG.voteSeconds });
+        lobbyBroadcast(lobby, lobbySummary(lobby)); maybeStart(lobby);
         break;
       }
-      case 'shot':
-        if (p && m.o && m.d) fire(L, p, m.w | 0, { x: +m.o.x, y: +m.o.y, z: +m.o.z }, { x: +m.d.x, y: +m.d.y, z: +m.d.z });
-        break;
       case 'vote':
         if (L && p && !p.bot && castVote(L, c.id, String(m.map))) lobbyBroadcast(L, lobbySummary(L));
         break;
@@ -450,12 +361,7 @@ setInterval(() => {
       continue;
     }
     if (L.state !== 'playing') continue;
-    for (const p of L.players.values()) {
-      if (!p.alive && now >= p.respawnAt) respawn(L, p);
-      if (p.bot) botThink(L, p, dt);
-    }
-    lobbyBroadcast(L, { t: 'snap', p: [...L.players.values()].map((p) => ({ id: p.id, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), yaw: +p.yaw.toFixed(2), hp: Math.round(p.hp), alive: p.alive, bot: p.bot })) });
-    if (now >= L.endsAt) endMatch(L);
+    tickMatch(L, dt, now);
   }
 }, TICK);
 
