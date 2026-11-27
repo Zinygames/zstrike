@@ -10,8 +10,9 @@ const DEFAULT_TARGETS = {
   azotea: ['16.5,9.5', '16.5,20.5', '16.5,36.5', '5.5,13.5', '27.5,32.5'],
   piscina: ['16.5,12.5', '1.5,18.5', '31.5,27.5', '14.5,19.5', '16.5,33.5'],
   paintball: ['5.5,10.5', '27.5,12.5', '16.5,20.5', '27.5,35.5', '5.5,33.5'],
+  coliseo: ['41,23', '23,41', '5,23', '23,5', '23,29.6', '12.5,12.5'], // zombie gates (tunnels) + mystery box + arena edge
 };
-const ids = process.argv[2] === 'v2' ? Object.keys(DEFAULT_TARGETS) : [process.argv[2] || 'barrio'];
+const ids = process.argv[2] === 'v2' ? Object.keys(DEFAULT_TARGETS).filter((k) => k !== 'coliseo') : [process.argv[2] || 'barrio'];
 let allOk = true;
 for (const id of ids) {
 const m = createMap(id);

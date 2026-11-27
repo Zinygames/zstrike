@@ -132,7 +132,20 @@ export const MODES = {
   dom: { name: 'DOMINACIÓN', short: 'DOM', team: true, desc: 'Captura y defiende las banderas A, B y C. 150 puntos.', scoreLimit: 150, seconds: 480, respawn: true, color: 0xffd84d },
   snd: { name: 'BUSCAR Y DESTRUIR', short: 'BYD', team: true, desc: 'Planta o desactiva la bomba. Sin reaparecer. 4 rondas.', scoreLimit: 4, seconds: 900, respawn: false, round: 90, color: 0xff5a1f },
   ctf: { name: 'CAPTURA LA BANDERA', short: 'CTF', team: true, desc: 'Roba la bandera enemiga y tráela a tu base. 3 capturas.', scoreLimit: 3, seconds: 480, respawn: true, color: 0x3aff8a },
+  // Co-op zombie survival in the Coliseo (not on the HQ portal wall: it has its own gate). Never wagered.
+  surv: { name: 'SURVIVE THE 150', short: '150', team: true, coop: true, desc: 'Sobrevive 150 oleadas de zombis en el Coliseo. Solo o en co-op.', scoreLimit: 0, seconds: 36000, respawn: false, color: 0xffb347 },
 };
+
+// Survive the 150: zombie types (base stats, scaled per wave in match.js) and the mystery box.
+export const ZTYPES = {
+  walker: { name: 'Zombi', hp: 70, sp: 2.1, dmg: 12, pts: 60, scale: 1 },
+  runner: { name: 'Corredor', hp: 50, sp: 4.0, dmg: 9, pts: 80, scale: 0.9 },
+  brute: { name: 'Bruto', hp: 380, sp: 1.7, dmg: 30, pts: 200, scale: 1.35 },
+  boss: { name: 'Gladiador Zombi', hp: 2500, sp: 2.4, dmg: 45, pts: 1500, scale: 2.0 },
+};
+export const SURV = { waves: 150, boxCost: 950, breakMs: 9000, firstBreakMs: 6000, maxAlive: 22, monoLureMs: 5000, monoMax: 3, pickups: 8 };
+// Mono Bomba: original wind-up cymbal-monkey toy. Throw it, zombies chase the clanging for 5 s, then it explodes.
+export const MONO = { id: 'mono', name: 'Mono Bomba', desc: 'Juguete de platillos: atrae a los zombis 5 s y explota.', radius: 6, damage: 650 };
 
 // Shop. Every item is a fixed, known reward (no loot boxes / no random paid rewards).
 // priceCoins: buyable with in-game coins (null = not available for coins).

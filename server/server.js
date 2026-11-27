@@ -11,7 +11,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import * as web3 from '@solana/web3.js';
-import { createMap, MAPS, DEFAULT_MAP, V2_MAPS } from '../map.js';
+import { createMap, MAPS, HUBS, DEFAULT_MAP, V2_MAPS } from '../map.js';
 import { MODES } from '../config.js';
 import { initMatch, newPlayer, beginMatch, tickMatch, handleMsg, board, setLoadout } from '../match.js';
 
@@ -125,6 +125,7 @@ const newId = (p) => p + (nextId++).toString(36);
 function mapsFor(mode) {
   if (!mode) return Object.keys(MAPS).filter((k) => !V2_MAPS.includes(k));
   if (mode === 'ctf') return ['barrio', ...V2_MAPS];
+  if (mode === 'surv') return ['coliseo'];
   return Object.keys(MAPS);
 }
 function makeLobby({ paid, mapId, size, mode = null }) {
@@ -174,7 +175,7 @@ function maybeStart(L) {
 }
 function startMatch(L) {
   const vote = resolveVote(L);
-  lobbyBroadcast(L, { t: 'mapResult', ...vote, name: MAPS[vote.map].name });
+  lobbyBroadcast(L, { t: 'mapResult', ...vote, name: (MAPS[vote.map] || HUBS[vote.map]).name });
   beginMatch(L);
   console.log(`[${L.id}] match started (${L.paid ? 'PAID' : 'test'}) mode=${L.mode || 'v1-ffa'} map=${L.mapId} players=${L.players.size}`);
 }
@@ -313,9 +314,10 @@ wss.on('connection', (ws) => {
         const mode = String(m.mode); if (!MODES[mode] || c.lobby) return;
         let lobby = [...lobbies.values()].find((x) => !x.paid && x.mode === mode && x.state === 'waiting' && x.players.size < x.size);
         if (!lobby) {
-          lobby = makeLobby({ paid: false, mapId: m.map, size: CFG.modeLobbySize, mode });
+          lobby = makeLobby({ paid: false, mapId: m.map, size: mode === 'surv' ? 4 : CFG.modeLobbySize, mode });
           setTimeout(() => {
             if (lobby.state !== 'waiting' || ![...lobby.players.values()].some((q) => !q.bot)) return;
+            if (lobby.mode === 'surv') lobby.size = lobby.players.size; // co-op: start with whoever joined (1-4), no bots
             let n = 0; while (lobby.players.size < lobby.size) addPlayer(lobby, { name: 'Bot ' + BOT_NAMES[n++ % BOT_NAMES.length], bot: true });
             lobbyBroadcast(lobby, lobbySummary(lobby)); maybeStart(lobby);
           }, 4000);

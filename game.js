@@ -1,7 +1,7 @@
 // ZStrike - client (single-player vs bots + online deathmatch client)
 import * as THREE from 'three';
-import { WEAPONS, SHOP_ITEMS, CLUSTER, SERVER_URL, PUBLIC_SERVER_URL, PERKS, STREAKS, MODES, DEFAULT_LOADOUT, CLASS_NAMES, weaponIndex } from './config.js';
-import { MAPS, DEFAULT_MAP, createMap, rayHitPlayer, HQ_PORTALS, HQ_BENCH, HQ_RANGE, HQ_SPAWN, V2_MAPS } from './map.js';
+import { WEAPONS, SHOP_ITEMS, CLUSTER, SERVER_URL, PUBLIC_SERVER_URL, PERKS, STREAKS, MODES, DEFAULT_LOADOUT, CLASS_NAMES, weaponIndex, ZTYPES, SURV, MONO } from './config.js';
+import { MAPS, DEFAULT_MAP, createMap, rayHitPlayer, HQ_PORTALS, HQ_BENCH, HQ_RANGE, HQ_SPAWN, V2_MAPS, HQ_COLISEO, HUBS } from './map.js';
 import { weaponIcon } from './voxguns.js';
 import { flowField, flowDir } from './ai.js';
 import { initMatch, newPlayer, beginMatch, tickMatch, handleMsg as matchHandle, board as matchBoard, setLoadout as matchLoadout } from './match.js';
@@ -48,7 +48,7 @@ scene.background = new THREE.Color(0x120626);
 scene.fog = new THREE.Fog(0x120626, 18, 60);
 const camera = new THREE.PerspectiveCamera(75, 1, 0.05, 200);
 scene.add(camera);
-scene.add(new THREE.HemisphereLight(0xc9a6ff, 0x1a0a33, 1.1));
+const hemi = new THREE.HemisphereLight(0xc9a6ff, 0x1a0a33, 1.1); scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffffff, 1.2); sun.position.set(10, 30, 5); scene.add(sun);
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
@@ -68,22 +68,33 @@ function pixelTex(base, accent, seed, opts = {}) {
   }
   if (opts.border) { g.fillStyle = accent; g.fillRect(0, 0, 16, 1); g.fillRect(0, 15, 16, 1); g.fillRect(0, 0, 1, 16); g.fillRect(15, 0, 1, 16); }
   if (opts.grid) { g.fillStyle = accent; g.fillRect(0, 0, 16, 1); g.fillRect(0, 0, 1, 16); }
+  if (opts.planks) { // light wooden planks with staggered seams
+    g.fillStyle = 'rgba(90,60,30,.35)'; for (let y = 0; y < 16; y += 4) { g.fillRect(0, y, 16, 1); g.fillRect(((y / 4) % 2) * 8 + 3, y, 1, 4); }
+  }
+  if (opts.arch) { // stone face with a dark arched opening (rows of arches on the stands)
+    g.fillStyle = '#2a2018'; g.fillRect(4, 7, 8, 9); g.beginPath(); g.arc(8, 7, 4, Math.PI, 0); g.fill();
+    g.fillStyle = accent; g.fillRect(3, 6, 1, 10); g.fillRect(12, 6, 1, 10);
+  }
   const t = new THREE.CanvasTexture(c);
   t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
 // Per-theme block materials (cached by map theme).
 const matCache = new Map();
-const BLOCK_KINDS = [1, 2, 3, 4, 5, 6, 7, 8];
+const BLOCK_KINDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 function themeMats(theme) {
   if (matCache.has(theme)) return matCache.get(theme);
   const mats = {};
   for (const k of BLOCK_KINDS) {
     if (!theme[k]) continue;
-    const [base, accent] = theme[k];
+    const [base, accent, style] = theme[k];
     const tex = pixelTex(base, accent, 3 + k * 4, { border: true });
     // glowing kinds (windows / neon trims) are unlit so they read as light sources
     mats[k] = (theme.glow || []).includes(k) ? new THREE.MeshBasicMaterial({ map: tex }) : new THREE.MeshLambertMaterial({ map: tex });
+    if (style === 'arch') { // arches on the sides, plain stone on top/bottom (BoxGeometry face order +x,-x,+y,-y,+z,-z)
+      const side = new THREE.MeshLambertMaterial({ map: pixelTex(base, accent, 5 + k * 4, { arch: true }) });
+      mats[k] = [side, side, mats[k], mats[k], side, side];
+    }
   }
   matCache.set(theme, mats); return mats;
 }
@@ -96,7 +107,8 @@ function buildWorld(id) {
   map = createMap(id); worldGroup = new THREE.Group();
   const th = map.theme, mats = themeMats(th);
   scene.background.setHex(th.bg); scene.fog.color.setHex(th.bg);
-  const floorTex = pixelTex(th.floor[0], th.floor[1], 5, { grid: true });
+  const hl = th.hemi || [0xc9a6ff, 0x1a0a33, 1.1]; hemi.color.setHex(hl[0]); hemi.groundColor.setHex(hl[1]); hemi.intensity = hl[2]; // sunny themes (Coliseo)
+  const floorTex = pixelTex(th.floor[0], th.floor[1], 5, th.planks ? { planks: true } : { grid: true });
   floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping; floorTex.repeat.set(map.w, map.l);
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(map.w, map.l), new THREE.MeshLambertMaterial({ map: floorTex }));
   floor.rotation.x = -Math.PI / 2; floor.position.set(map.w / 2, 0, map.l / 2); worldGroup.add(floor);
@@ -244,6 +256,7 @@ let paused = true;
 
 function availableWeapons() {
   if (mode === 'online' && online.legacy) return [0, 1, 2]; // v1 lobbies (paid / free test): equal loadout, server-checked
+  if (mode === 'online' && online.mode === 'surv' && online.survLo) return [online.survLo.primary, online.survLo.secondary].filter((i) => i >= 0 && WEAPONS[i]);
   const lo = curLoadout(), list = [weaponIndex(lo.primary), weaponIndex(lo.secondary)];
   if (mode === 'solo') { // waves: loadout + every v1 shop weapon you own
     const o = stats().owned; WEAPONS.forEach((w, i) => { if (w.legacy && (!w.unlock || o.has(w.unlock)) && !list.includes(i)) list.push(i); });
@@ -277,9 +290,12 @@ addEventListener('keydown', (e) => {
     const st = STREAKS.find((x) => x.key === e.code); if (st) useStreakNow(st.id);
     if (e.code === 'KeyG') throwNade(curLoadout().lethal || 'frag');
     if (e.code === 'KeyF') throwNade(curLoadout().tactical || 'flash');
+    if (online.mode === 'surv') { if (e.code === 'KeyE') survInteract(); if (e.code === 'KeyT') throwMono(); }
   }
 });
 $('btn-nade').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); throwNade(curLoadout().lethal || 'frag'); });
+$('btn-use').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); survInteract(); });
+$('btn-mono').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); throwMono(); });
 $('btn-flash').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); throwNade(curLoadout().tactical || 'flash'); });
 addEventListener('keyup', (e) => { input.keys[e.code] = false; });
 canvas.addEventListener('mousedown', (e) => {
@@ -356,7 +372,7 @@ const WEAPON_ICONS = {
   rocket: '<svg viewBox="0 0 26 12"><rect x="2" y="2" width="20" height="5" rx="1" fill="currentColor"/><path fill="currentColor" d="M22 1l4 3.5-4 3.5zM9 7h3l-1 5H8z"/></svg>',
   bot: '<svg viewBox="0 0 26 12"><path fill="currentColor" d="M2 3h18v3H2zM20 4h5v1h-5zM6 6h3l-1 4H5z"/></svg>',
 };
-const SPECIAL_KILLS = { '-2': ['✈', 'BOMBARDEO'], '-3': ['🚁', 'HELICÓPTERO'], '-4': ['●', 'GRANADA'], '-5': ['⇣', 'CAÍDA'], '-6': ['✸', 'BOMBA'] };
+const SPECIAL_KILLS = { '-7': ['🧟', 'ZOMBI'], '-8': ['🐒', 'MONO BOMBA'], '-2': ['✈', 'BOMBARDEO'], '-3': ['🚁', 'HELICÓPTERO'], '-4': ['●', 'GRANADA'], '-5': ['⇣', 'CAÍDA'], '-6': ['✸', 'BOMBA'] };
 function addKill(killer, wIdx, victim, { head = false, killerMe = false, victimMe = false, side = null } = {}) {
   const w = WEAPONS[wIdx], sp = SPECIAL_KILLS[wIdx];
   let icon, label, color = '#cccccc';
@@ -712,8 +728,12 @@ const online = {
       case 'start': this.startMatch(m); break;
       case 'snap':
         for (const p of m.p) {
-          if (p.id === this.id) { player.hp = p.hp; this.myTeam = p.tm ?? this.myTeam; continue; }
+          if (p.id === this.id) { player.hp = p.hp; this.myTeam = p.tm ?? this.myTeam; if (p.pt !== undefined) SV.myPts = p.pt; continue; }
           let r = this.remotes.get(p.id);
+          if (!r && p.zt) {
+            r = { mesh: makeZombie(p.zt), tgt: new THREE.Vector3(p.x, p.y, p.z), yaw: p.yaw, walk: 0, zombie: p.zt, phase: Math.random() * 6 };
+            r.mesh.position.set(p.x, p.y, p.z); scene.add(r.mesh); this.remotes.set(p.id, r);
+          }
           if (!r) {
             const v2 = !this.legacy, mate = v2 && this.teamMode && p.tm === this.myTeam;
             const col = !v2 ? (p.bot ? 0xff3df2 : 0x14f195) : mate ? 0x3f8cff : (this.teamMode ? 0xff4a3d : 0xff3df2);
@@ -721,16 +741,21 @@ const online = {
             if (mate) { const tag = makeLabel('▼ ' + this.name(p.id), '#14f195', 256); tag.scale.multiplyScalar(0.55); tag.position.y = 2.35; r.mesh.add(tag); }
             r.mesh.position.set(p.x, p.y, p.z); scene.add(r.mesh); this.remotes.set(p.id, r);
           }
-          r.tgt.set(p.x, p.y, p.z); r.yaw = p.yaw; r.mesh.visible = p.alive; r.alive = p.alive; r.tm = p.tm; r.ghost = p.g;
+          r.tgt.set(p.x, p.y, p.z); r.yaw = p.yaw; r.mesh.visible = p.alive; r.alive = p.alive; r.tm = p.tm; r.ghost = p.g; r.hp = p.hp; r.mh = p.mh; r.seen = m;
         }
+        if (this.mode === 'surv') for (const [id, r] of this.remotes) if (r.zombie && r.seen !== m) { scene.remove(r.mesh); this.remotes.delete(id); }
         if (m.sc) this.sc = m.sc;
         if (m.u) this.uav = m.u;
         syncHelis(m.h || []);
-        if (m.o) { this.obj = m.o; syncObjectives(m.o); }
+        if (m.o) { this.obj = m.o; syncObjectives(m.o); syncSurvObj(m.o); }
         break;
       case 'streakReady': streakReady(m.id); break;
       case 'streak': onStreak(m); break;
       case 'nade': onNade(m); break;
+      case 'survLo': onSurvLo(m); break;
+      case 'boxOpen': onBoxOpen(m); break;
+      case 'boxGot': onBoxGot(m); break;
+      case 'boxNo': banner(`NECESITAS ${m.need} PUNTOS (tienes ${m.have})`, 1.6); break;
       case 'flashed': flashOverlay(m.dur); break;
       case 'second': banner('¡SEGUNDA OPORTUNIDAD!', 1.5); break;
       case 'medal': medal({ cap: 'BANDERA CAPTURADA', capture: '¡CAPTURA!', plant: 'BOMBA PLANTADA', defuse: 'BOMBA DESACTIVADA' }[m.id] || m.id, 150); break;
@@ -750,12 +775,13 @@ const online = {
         if (m.target === this.id) { player.hp = m.hp; damageFlash(); }
         break;
       case 'kill': {
+        if (m.zt) { onSurvKill(m); break; }
         const kr = this.remotes.get(m.killer), kTeam = m.killer === this.id ? this.myTeam : kr?.tm;
         const side = this.legacy ? null : (m.killer === this.id || (this.teamMode && kTeam === this.myTeam) ? 'good' : 'bad');
         addKill(this.name(m.killer), m.w ?? 0, this.name(m.victim), { head: m.head, killerMe: m.killer === this.id, victimMe: m.victim === this.id, side });
         if (m.victim === this.id) {
           player.alive = false; player.hp = 0; this.streakN = 0;
-          $('respawn-text').textContent = this.mode === 'snd' ? 'Eliminado · esperando la siguiente ronda' : 'Reapareciendo…';
+          $('respawn-text').textContent = this.mode === 'snd' ? 'Eliminado · esperando la siguiente ronda' : this.mode === 'surv' ? 'Caíste · vuelves en la siguiente oleada (si tu equipo sobrevive)' : 'Reapareciendo…';
         }
         if (m.killer === this.id && m.victim !== this.id && !this.legacy) killRewards(m);
         break;
@@ -770,7 +796,7 @@ const online = {
       case 'refund': onlineMsg(`Reembolso enviado: <a href="${Wallet.explorerTxUrl(m.sig)}" target="_blank">ver tx</a>`); break;
     }
   },
-  name(id) { return (this.board || []).find((b) => b.id === id)?.name || (id === this.id ? playerName() : '?'); },
+  name(id) { if (String(id).startsWith('Z')) return 'Zombi'; return (this.board || []).find((b) => b.id === id)?.name || (id === this.id ? playerName() : '?'); },
   renderBoard() {
     const b = (this.board || []).slice().sort((a, c) => c.kills - a.kills || a.deaths - c.deaths);
     this.myKills = b.find((x) => x.id === this.id)?.kills || 0;
@@ -789,23 +815,33 @@ const online = {
     $('online').classList.add('hidden'); $('online').classList.remove('in-lobby'); showGame();
     banner(this.mode ? MODES[this.mode].name + (this.teamMode ? ' · EQUIPO AZUL' : '') : (MAPS[m.map]?.name || '').toUpperCase() + ' · ¡A PELEAR!', 2.5);
     $('mp-timer').classList.toggle('hidden', !!this.mode); $('scoreboard').classList.toggle('hidden', !!this.mode);
-    document.body.classList.toggle('v2match', !!this.mode);
+    document.body.classList.toggle('v2match', !!this.mode); document.body.classList.toggle('surv', this.mode === 'surv');
+    if (this.mode === 'surv') { banner('SURVIVE THE 150 · ¡AGUANTA 150 OLEADAS!', 3); if (m.obj) syncSurvObj(m.obj); }
   },
   endMatch(m) {
     this.inMatch = false; paused = true; document.exitPointerLock?.();
-    const rows = m.board.sort((a, c) => c.kills - a.kills || a.deaths - c.deaths).map((x, i) => `${i + 1}. ${esc(x.name)} — ${x.kills} kills / ${x.deaths} muertes`).join('<br>');
+    const rows = m.board.sort((a, c) => c.kills - a.kills || a.deaths - c.deaths).map((x, i) => `${i + 1}. ${esc(x.name)} — ${x.kills} ${m.mode === 'surv' ? 'zombis · ' + (x.score || 0) + ' pts' : 'kills / ' + x.deaths + ' muertes'}`).join('<br>');
     let pay = '';
     if (m.payout?.winnerSig) pay = `<br>💰 Premio ${m.payout.winnerSol.toFixed(4)} SOL → ganador · <a href="${Wallet.explorerTxUrl(m.payout.winnerSig)}" target="_blank">ver tx</a>`;
     else if (m.payout?.note) pay = '<br>' + esc(m.payout.note);
     else if (m.payout?.error) pay = '<br>⚠️ Error en el pago: ' + esc(m.payout.error);
     let head = `🏆 Ganador: <b>${esc(m.winner?.name || '—')}</b>${m.winner?.id === this.id ? ' (¡TÚ!)' : ''}`;
-    if (m.mode && MODES[m.mode]?.team) {
+    if (m.mode === 'surv') {
+      const won = m.winTeam === 0, waves = m.sc?.[0] ?? 0;
+      head = won
+        ? `<span class="champ">🏆 ¡CAMPEÓN DEL COLISEO! 🏆</span><br><b>Sobreviviste las ${SURV.waves} oleadas</b>`
+        : `<b style="font-size:22px;color:#ff5a5a">CAÍSTE EN EL COLISEO</b><br>Oleadas superadas: <b>${waves} / ${SURV.waves}</b>`;
+      addXp(won ? 5000 : Math.min(3000, 40 * waves + 100), won ? 'CAMPEÓN DEL COLISEO' : 'SURVIVE THE 150');
+      $('gameover').classList.toggle('victory', won);
+    } else if (m.mode && MODES[m.mode]?.team) {
       const won = m.winTeam === this.myTeam, tie = m.winTeam === -1;
       head = `<b style="font-size:22px;color:${tie ? '#fff' : won ? '#14f195' : '#ff5a5a'}">${tie ? 'EMPATE' : won ? '¡VICTORIA!' : 'DERROTA'}</b> · ${MODES[m.mode].name} ${m.sc ? m.sc.join(' - ') : ''}`;
       addXp(tie ? 300 : won ? 600 : 200, tie ? 'EMPATE' : won ? 'VICTORIA' : 'PARTIDA');
     } else if (m.mode) addXp(m.winner?.id === this.id ? 600 : 200, m.winner?.id === this.id ? 'VICTORIA' : 'PARTIDA');
     $('go-stats').innerHTML = `${head}<br><br>${rows}${pay}`;
-    this.lastEnd = m; document.body.classList.remove('v2match'); clearMatchFx();
+    if (m.mode !== 'surv') $('gameover').classList.remove('victory');
+    $('gameover').querySelector('h2').textContent = m.mode === 'surv' ? (m.winTeam === 0 ? '¡VICTORIA!' : 'FIN DE LA PARTIDA') : 'GAME OVER';
+    this.lastEnd = m; document.body.classList.remove('v2match', 'surv'); clearMatchFx();
     if (this.local) { this.local = null; this.id = null; }
     $('gameover').classList.remove('hidden'); $('touch').classList.add('hidden'); $('hud').classList.add('hidden');
     mode = 'menu';
@@ -1117,6 +1153,15 @@ function buildHQDeco() {
   const lb = makeLabel('ARMERÍA · LOADOUT', '#ffb347', 320); lb.position.set(HQ_BENCH.x, 2.6, HQ_BENCH.z + 2); worldGroup.add(lb);
   const lr = makeLabel('CAMPO DE TIRO', '#ff3df2', 300); lr.position.set(21.5, 3.3, 12); worldGroup.add(lr);
   const lh = makeLabel('HELIPUERTO', '#3fe3ff', 260); lh.position.set(16.5, 2.4, 10); worldGroup.add(lh);
+  // Coliseo (east wing): golden swirl in the arena centre = gate to Survive the 150
+  { const C = HQ_COLISEO, M = MODES.surv;
+    const col = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 3.2, 24, 1, true), new THREE.MeshBasicMaterial({ color: M.color, transparent: true, opacity: 0.4, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }));
+    col.position.set(C.x, 1.7, C.z); worldGroup.add(col); hqPortalMeshes.push(col); col.name = 'surv-portal';
+    const lbl = makeLabel('🏟 ' + M.name, '#ffb347', 420); lbl.position.set(C.x, 4.4, C.z + C.R + 0.5); worldGroup.add(lbl);
+    const l2 = makeLabel('COLISEO', '#ffd27a', 260); l2.position.set(32.5, 4.6, 29.5); worldGroup.add(l2);
+    const mono = makeMonoBomba(); mono.scale.setScalar(1.6); mono.position.set(C.x + 3, 0.05, C.z + 1); mono.rotation.y = Math.PI * 0.8; mono.name = 'hq-mono'; worldGroup.add(mono);
+    const z1 = makeZombie('walker'); z1.position.set(C.x - 3, 0.05, C.z - 2); z1.rotation.y = 0.6; worldGroup.add(z1);
+    const z2 = makeZombie('boss'); z2.position.set(C.x + 1, 0.05, C.z - 4); worldGroup.add(z2); z2.scale.setScalar(1.6); }
   // weapon on the bench (your current primary), slowly turning
   const g = makeWeaponModel(curLoadout().primary); g.scale.setScalar(1.6); g.position.set(7.5, 1.35, 18.5); g.name = 'bench-gun'; worldGroup.add(g);
   // range targets (dummies): stand on the berm
@@ -1206,6 +1251,9 @@ function updateHQ(dt) {
     if (inX && player.pos.z > p.z - 4 && !near) { near = 'portal'; prompt = `${MODES[p.mode].name} · ${netMode === 'online' ? 'ONLINE' : 'VS BOTS'}<small>${MODES[p.mode].desc}</small>`; }
     if (inX && player.pos.z > p.z - 0.15) launchPortal(p.mode);
   }
+  { const C = HQ_COLISEO, d = Math.hypot(player.pos.x - C.x, player.pos.z - C.z);
+    if (d < C.R + 3 && !near) { near = 'coliseo'; prompt = `🏟 ${MODES.surv.name} · ${netMode === 'online' ? 'CO-OP ONLINE' : 'VS BOTS (con 1 aliado)'}<small>${MODES.surv.desc} Entra al círculo dorado.</small>`; }
+    if (d < C.r) launchPortal('surv'); }
   if (!near && hqInRange) prompt = 'Dispara a los blancos<small>prueba tu loadout · ' + (IS_TOUCH ? '⇄ cambia de arma' : 'Q / 1-2 cambia de arma') + '</small>';
   hqNear = near;
   $('hq-prompt').innerHTML = prompt; $('hq-prompt').classList.toggle('hidden', !prompt);
@@ -1213,12 +1261,14 @@ function updateHQ(dt) {
   const t = performance.now() / 1000;
   hqPortalMeshes.forEach((m, i) => (m.material.opacity = 0.4 + Math.sin(t * 3 + i) * 0.15));
   const bg = worldGroup.getObjectByName('bench-gun'); if (bg) bg.rotation.y = t * 0.8;
+  const hm = worldGroup.getObjectByName('hq-mono'); if (hm) { const c = Math.abs(Math.sin(t * 5)) * 0.9; hm.getObjectByName('cymL').rotation.y = -c; hm.getObjectByName('cymR').rotation.y = c; }
 }
 
 // ================================================================ v2 match client (modes, streaks, grenades, minimap)
 // Game modes launched from the HQ portals. VS BOTS runs the same shared simulation as the server (match.js) in the page.
 const MODE_MAPS = { tdm: null, ffa: null, dom: null, snd: null, ctf: ['barrio'] };
-function modeMapPool(m) { const all = Object.keys(MAPS); const pref = (MODE_MAPS[m] || []).concat(NEW_MAP_IDS.filter((id) => MAPS[id])); return (m === 'ctf' ? pref : all).filter((id) => MAPS[id]); }
+function modeMapPool(m) { if (m === 'surv') return ['coliseo']; return modeMapPool2(m); }
+function modeMapPool2(m) { const all = Object.keys(MAPS); const pref = (MODE_MAPS[m] || []).concat(NEW_MAP_IDS.filter((id) => MAPS[id])); return (m === 'ctf' ? pref : all).filter((id) => MAPS[id]); }
 const NEW_MAP_IDS = V2_MAPS;
 let lastModeLaunch = null;
 function loadoutMsg() { const lo = curLoadout(); return { primary: lo.primary, secondary: lo.secondary, perks: lo.perks, lethal: lo.lethal, tactical: lo.tactical }; }
@@ -1228,12 +1278,12 @@ function startMode(m, net, mapPick) {
   if (net === 'online') return openOnlineMode(m, id);
   startLocalMatch(m, id);
 }
-function startLocalMatch(m, id) {
+function startLocalMatch(m, id, opts = {}) {
   clearSolo(); online.clearRemotes();
   const deliver = (msg) => online.onMsg(JSON.parse(JSON.stringify(msg)));
   const L = { id: 'local', paid: false, mapId: id, map: createMap(id), size: 8, players: new Map(), votes: new Map(), state: 'waiting' };
   initMatch(L, {
-    mode: m, botSkill: 0.5,
+    mode: m, botSkill: 0.5, survStart: opts.survStart || 1,
     bcast: deliver, sendTo: (p, msg) => { if (p.id === 'ME') deliver(msg); },
     onEnd: (L2, res) => {
       const ranked = [...L2.players.values()].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
@@ -1242,7 +1292,7 @@ function startLocalMatch(m, id) {
   });
   const me = newPlayer(L, { id: 'ME', name: playerName(), conn: { local: true } }); matchLoadout(L, me, loadoutMsg());
   const names = ['Kiwi', 'Turbo', 'Pixel', 'Mango', 'Rayo', 'Coco', 'Nube', 'Chispa'];
-  for (let i = 0; i < 7; i++) newPlayer(L, { id: 'B' + i, name: 'Bot ' + names[i], bot: true });
+  for (let i = 0; i < (m === 'surv' ? 1 : 7); i++) newPlayer(L, { id: 'B' + i, name: 'Bot ' + names[i], bot: true }); // surv: you + 1 ally bot
   online.local = L; online.id = 'ME'; online.localAcc = 0;
   beginMatch(L);
 }
@@ -1332,6 +1382,13 @@ function onStreak(m) {
   }
 }
 function onNade(m) {
+  if (m.kind === 'mono') {
+    const g = makeMonoBomba(); g.scale.setScalar(1.3); g.position.set(m.o.x, m.o.y, m.o.z); matchFx.add(g);
+    const light = new THREE.PointLight(0xff2a2a, 2, 9); light.position.y = 0.9; g.add(light);
+    SV.monos.push({ g, light, o: m.o, e: m.e, t0: Date.now(), land: m.land, at: m.at });
+    if (m.by === online.id) banner('🐒 ¡MONO BOMBA! los zombis van tras ella', 1.6);
+    return;
+  }
   const g = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 6), new THREE.MeshLambertMaterial({ color: m.kind === 'frag' ? 0x3a5a2a : 0xdddddd }));
   matchFx.add(g); nades.push({ mesh: g, o: m.o, e: m.e, t0: Date.now(), at: m.at, kind: m.kind });
 }
@@ -1358,7 +1415,7 @@ function updateMatchFx(dt) {
 function clearMatchFx() {
   while (matchFx.children.length) matchFx.remove(matchFx.children[0]);
   heliMeshes.length = 0; planes.length = 0; nades.length = 0; objMeshes.clear();
-  online.uav = []; online.obj = null;
+  online.uav = []; online.obj = null; clearSurv();
 }
 function throwNade(kind) {
   if (!online.inMatch || online.legacy || !player.alive) return;
@@ -1399,6 +1456,7 @@ function syncObjectives(o) {
   }
 }
 function onObjEvent(m) {
+  if (m.ev === 'wave' || m.ev === 'waveClear') return survEvent(m);
   const mine = (t) => online.teamMode && t === online.myTeam;
   if (m.ev === 'cap') banner(`BANDERA ${m.flag} ${mine(m.team) ? 'CAPTURADA' : 'PERDIDA'}`, 1.4);
   if (m.ev === 'take') banner(mine(m.team) ? '¡TIENEN NUESTRA BANDERA!' : (m.by === online.id ? '¡TIENES LA BANDERA! VUELVE A TU BASE' : '¡TOMAMOS SU BANDERA!'), 1.8);
@@ -1441,6 +1499,7 @@ function drawMinimap() {
     if (!r.alive) return;
     const mate = online.teamMode && r.tm === online.myTeam;
     if (mate) return dot(r.mesh.position.x, r.mesh.position.z, '#3f8cff', 0.9);
+    if (r.zombie) return dot(r.mesh.position.x, r.mesh.position.z, r.zombie === 'boss' ? '#ff00ff' : '#ff3b3b', r.zombie === 'boss' ? 1.6 : 0.8);
     if ((myUav && !r.ghost) || r.pingUntil > now) dot(r.mesh.position.x, r.mesh.position.z, '#ff3b3b', 0.9);
   });
   heliMeshes.forEach((h) => dot(h.position.x, h.position.z, '#ffd84d', 1.3));
@@ -1451,7 +1510,7 @@ function drawMinimap() {
 
 // ---- v2 match HUD (score, timer, objective strip)
 function updateV2Hud(dt) {
-  updateMedals(dt); updateMatchFx(dt);
+  updateMedals(dt); updateMatchFx(dt); updateSurv(dt);
   if (!online.inMatch || online.legacy) return;
   drawMinimap();
   const left = Math.max(0, online.endsAt - Date.now()) / 1000;
@@ -1483,6 +1542,7 @@ function drawObjMarks(o) {
   const hex = (c) => '#' + c.toString(16).padStart(6, '0');
   if (o?.f) for (const [id, x, z, owner, prog] of o.f) items.push({ x, z, t: id, c: hex(objColor(owner)), p: prog });
   if (o?.c) for (const [team, x, z, carrier] of o.c) { if (carrier === online.id) continue; const r = carrier && online.remotes.get(carrier); items.push({ x: r ? r.mesh.position.x : x, z: r ? r.mesh.position.z : z, t: '⚑', c: hex(objColor(team)) }); }
+  if (o?.bx) items.push({ x: o.bx[0], z: o.bx[1], t: '?', c: '#ffd84d' });
   if (o?.s) { if (o.b) items.push({ x: o.b[0], z: o.b[1], t: '💣', c: '#ff3b3b' }); else for (const [id, x, z] of o.s) items.push({ x, z, t: id, c: '#ffa23d' }); }
   let h = '';
   const W = innerWidth, H = innerHeight;
@@ -1501,6 +1561,189 @@ function tickLocal(dt) {
   online.localAcc += dt;
   let n = 0; while (online.localAcc >= 0.05 && n++ < 4) { online.localAcc -= 0.05; tickMatch(online.local, 0.05); }
   if (online.localAcc > 0.2) online.localAcc = 0;
+}
+
+// ================================================================ Survive the 150 (client): zombies, box, pickups, Mono Bomba
+const SV = { box: null, boxSpin: null, pickups: new Map(), corpses: [], monos: [], myPts: 0, prompt: null, bossId: null };
+function vb(g, w, h, d, color, x, y, z, name, basic) { // voxel box helper
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), basic ? new THREE.MeshBasicMaterial({ color }) : new THREE.MeshLambertMaterial({ color }));
+  m.position.set(x, y, z); if (name) m.name = name; g.add(m); return m;
+}
+// Original voxel zombies: hunched, arms forward, glowing eyes; look depends on the type.
+const ZLOOK = {
+  walker: { skin: 0x7fb04f, shirt: 0x6b4a2e, pants: 0x2f4a6b, eyes: 0xffe14d },
+  runner: { skin: 0x9ccc5a, shirt: 0xa83a2a, pants: 0x3a3a3a, eyes: 0xff6a2a },
+  brute: { skin: 0x5f8a3e, shirt: 0x55585e, pants: 0x2a2a2e, eyes: 0xffe14d },
+  boss: { skin: 0x6a9a40, shirt: 0x8a5a24, pants: 0x4a2a14, eyes: 0xff2a2a },
+};
+function makeZombie(type) {
+  const L2 = ZLOOK[type] || ZLOOK.walker, g = new THREE.Group(), body = new THREE.Group(); g.add(body);
+  const legL = vb(g, 0.24, 0.62, 0.24, L2.pants, -0.14, 0.31, 0, 'legL'), legR = vb(g, 0.24, 0.62, 0.24, L2.pants, 0.14, 0.31, 0, 'legR');
+  body.position.y = 0.62; body.rotation.x = 0.18;                                    // hunched
+  vb(body, 0.58, 0.7, 0.34, L2.shirt, 0, 0.36, 0);
+  vb(body, 0.2, 0.14, 0.36, L2.skin, 0.12, 0.12, 0.0);                               // torn shirt (skin showing)
+  vb(body, 0.46, 0.46, 0.46, L2.skin, 0, 0.95, -0.04, 'zhead');
+  vb(body, 0.1, 0.07, 0.04, L2.eyes, -0.11, 1.0, -0.28, null, true); vb(body, 0.1, 0.07, 0.04, L2.eyes, 0.11, 1.0, -0.28, null, true);
+  vb(body, 0.2, 0.06, 0.04, 0x2a1a10, 0, 0.82, -0.28);                               // mouth
+  const armL = vb(body, 0.18, 0.18, 0.62, L2.skin, -0.39, 0.58, -0.3, 'armL'), armR = vb(body, 0.18, 0.18, 0.62, L2.skin, 0.39, 0.58, -0.3, 'armR');
+  if (type === 'brute') { vb(body, 0.8, 0.2, 0.4, 0x3a3d42, 0, 0.72, 0); }            // shoulder pads
+  if (type === 'boss') { // original "gladiator" zombie: bronze helmet with a crest, shoulder plate, belt
+    vb(body, 0.52, 0.2, 0.52, 0xb08a3a, 0, 1.2, -0.04); vb(body, 0.08, 0.26, 0.5, 0xc0392b, 0, 1.4, -0.04);
+    vb(body, 0.3, 0.16, 0.4, 0xb08a3a, -0.36, 0.72, 0); vb(body, 0.62, 0.1, 0.36, 0x6a4a1e, 0, 0.06, 0);
+  }
+  g.scale.setScalar(ZTYPES[type]?.scale || 1);
+  g.userData.zombie = type; armL.userData.base = armL.rotation.x; armR.userData.base = armR.rotation.x;
+  return g;
+}
+// Mono Bomba: an original wind-up toy monkey with brass cymbals, red eyes, a little hat and a striped vest.
+function makeMonoBomba() {
+  const g = new THREE.Group(), fur = 0x7a4a26, face = 0xe0b48a;
+  vb(g, 0.34, 0.3, 0.26, fur, 0, 0.15, 0);                                            // legs/seat
+  for (let i = 0; i < 4; i++) vb(g, 0.36, 0.08, 0.28, i % 2 ? 0xf2efe6 : 0x3f6fb5, 0, 0.36 + i * 0.08, 0); // striped vest
+  vb(g, 0.36, 0.32, 0.3, fur, 0, 0.82, 0);                                            // head
+  vb(g, 0.26, 0.18, 0.06, face, 0, 0.78, -0.16);                                      // muzzle
+  vb(g, 0.16, 0.04, 0.02, 0xffffff, 0, 0.73, -0.2, null, true);                       // big toothy grin
+  vb(g, 0.07, 0.07, 0.03, 0xff2020, -0.08, 0.9, -0.16, 'eyeL', true); vb(g, 0.07, 0.07, 0.03, 0xff2020, 0.08, 0.9, -0.16, 'eyeR', true);
+  vb(g, 0.08, 0.12, 0.06, face, -0.22, 0.86, 0); vb(g, 0.08, 0.12, 0.06, face, 0.22, 0.86, 0); // ears
+  vb(g, 0.2, 0.12, 0.2, 0x2e5a3a, 0, 1.04, 0); vb(g, 0.04, 0.08, 0.04, 0xffd84d, 0.08, 1.12, 0); // little hat + tassel
+  vb(g, 0.06, 0.1, 0.06, 0xc0c0c0, 0, 0.5, 0.17);                                     // wind-up key
+  for (const s of [-1, 1]) {
+    const arm = new THREE.Group(); arm.position.set(s * 0.22, 0.56, -0.04); arm.name = s < 0 ? 'cymL' : 'cymR'; g.add(arm);
+    vb(arm, 0.08, 0.08, 0.2, fur, 0, 0, -0.08);
+    const cym = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.025, 12), new THREE.MeshLambertMaterial({ color: 0xd8a83a, emissive: 0x3a2a08 }));
+    cym.rotation.z = Math.PI / 2; cym.position.set(-s * 0.06, 0, -0.18); arm.add(cym);
+  }
+  return g;
+}
+let audioCtx = null;
+function clang(vol = 0.25) { // metallic cymbal clash, synthesized (no audio files)
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const t = audioCtx.currentTime, out = audioCtx.createGain(); out.gain.setValueAtTime(vol, t); out.gain.exponentialRampToValueAtTime(0.001, t + 0.35); out.connect(audioCtx.destination);
+    for (const f of [523, 787, 1131, 1593]) { const o = audioCtx.createOscillator(); o.type = 'square'; o.frequency.value = f * (0.98 + Math.random() * 0.04); o.connect(out); o.start(t); o.stop(t + 0.36); }
+  } catch (_) {}
+}
+function survActive() { return mode === 'online' && online.mode === 'surv' && online.inMatch; }
+function syncSurvObj(o) {
+  if (!o?.sv) return;
+  online.sv = o.sv;
+  // mystery box (chest with a glowing ? and its price)
+  if (!SV.box && o.bx) {
+    const g = new THREE.Group(), y = map.heightAt(o.bx[0], o.bx[1]);
+    vb(g, 1.7, 0.55, 0.8, 0x6a4422, 0, 0.27, 0); vb(g, 1.74, 0.12, 0.84, 0xd8a83a, 0, 0.56, 0); vb(g, 1.7, 0.22, 0.8, 0x7a5028, 0, 0.73, 0, 'lid');
+    vb(g, 0.2, 0.2, 0.06, 0xffd84d, 0, 0.4, -0.42, null, true);
+    const q = makeLabel('?', '#ffd84d', 128); q.scale.multiplyScalar(0.9); q.position.y = 1.6; q.name = 'q'; g.add(q);
+    const lbl = makeLabel('CAJA MISTERIOSA · ' + o.bx[2], '#ffd84d', 380); lbl.scale.multiplyScalar(0.7); lbl.position.y = 2.3; g.add(lbl);
+    const light = new THREE.PointLight(0xffd84d, 1.2, 6); light.position.y = 1.2; g.add(light);
+    g.position.set(o.bx[0], y, o.bx[1]); matchFx.add(g); SV.box = g;
+  }
+  // weapon pickups lying around the arena
+  const seen = new Set();
+  for (const [id, x, z, w] of o.pk || []) {
+    seen.add(id); let k = SV.pickups.get(id);
+    if (k && k.w !== w) { matchFx.remove(k.g); k = null; }
+    if (!k) {
+      const g = new THREE.Group(), m = makeWeaponModel(WEAPONS[w].id); const s = 1.4; m.scale.setScalar(s); m.position.y = 0.7; m.name = 'gun'; g.add(m);
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.45, 0.6, 20), new THREE.MeshBasicMaterial({ color: WEAPONS[w].color || 0xffffff, transparent: true, opacity: 0.7, side: THREE.DoubleSide }));
+      ring.rotation.x = -Math.PI / 2; ring.position.y = 0.04; g.add(ring);
+      g.position.set(x, map.heightAt(x, z), z); matchFx.add(g); k = { g, w, x, z }; SV.pickups.set(id, k);
+    }
+  }
+  for (const [id, k] of SV.pickups) if (!seen.has(id)) { matchFx.remove(k.g); SV.pickups.delete(id); }
+}
+function onBoxOpen(m) {
+  if (!SV.box) return;
+  const mine = m.by === online.id;
+  SV.boxSpin = { until: m.at, w: m.w, mine, t: 0, model: null };
+  const lid = SV.box.getObjectByName('lid'); if (lid) { lid.position.set(0, 0.95, 0.3); lid.rotation.x = -1.0; }
+  if (!mine) banner(online.name(m.by) + ' abre la caja', 1.2);
+}
+function boxModel(w) { if (w < 0) { const g = makeMonoBomba(); g.scale.setScalar(0.9); return g; } const g = makeWeaponModel(WEAPONS[w].id); g.scale.setScalar(1.5); return g; }
+function updateSurv(dt) {
+  if (!survActive()) return;
+  const now = Date.now(), t = performance.now() / 1000;
+  if (SV.box) { const q = SV.box.getObjectByName('q'); if (q) q.position.y = 1.6 + Math.sin(t * 3) * 0.1; }
+  SV.pickups.forEach((k) => { const g = k.g.getObjectByName('gun'); if (g) { g.rotation.y = t * 1.5; g.position.y = 0.7 + Math.sin(t * 2.5 + k.x) * 0.08; } });
+  // box roulette: cycle random models above the chest, then show the prize
+  if (SV.boxSpin && SV.box) {
+    const b = SV.boxSpin; b.t += dt;
+    const done = now >= b.until, pick = done ? b.w : (Math.floor(b.t * 8) % 7 === 6 ? -1 : (Math.floor(b.t * 8) * 7) % WEAPONS.length);
+    if (b.shown !== pick) { if (b.model) SV.box.remove(b.model); b.model = boxModel(pick); b.model.position.y = 1.3 + Math.min(1, b.t) * 0.5; SV.box.add(b.model); b.shown = pick; }
+    b.model.rotation.y = t * 2;
+    if (now > b.until + 1500) { SV.box.remove(b.model); const lid = SV.box.getObjectByName('lid'); if (lid) { lid.position.set(0, 0.73, 0); lid.rotation.x = 0; } SV.boxSpin = null; }
+  }
+  // zombie arms sway + corpses fall over
+  online.remotes.forEach((r) => { if (!r.zombie) return; const a = Math.sin(t * 6 + r.phase) * 0.15; const al = r.mesh.getObjectByName('armL'), ar = r.mesh.getObjectByName('armR'); if (al) al.rotation.x = a; if (ar) ar.rotation.x = -a; });
+  for (let i = SV.corpses.length - 1; i >= 0; i--) {
+    const c = SV.corpses[i]; c.t += dt; c.mesh.rotation.x = Math.min(Math.PI / 2, c.t * 4); c.mesh.position.y -= c.t > 0.6 ? dt * 0.8 : 0;
+    if (c.t > 1.6) { scene.remove(c.mesh); SV.corpses.splice(i, 1); }
+  }
+  // Mono Bomba: clap the cymbals, flash the eyes + light, clang
+  for (let i = SV.monos.length - 1; i >= 0; i--) {
+    const mo = SV.monos[i], g = mo.g;
+    if (now < mo.land) { const k = 1 - (mo.land - now) / (mo.land - mo.t0); g.position.set(mo.o.x + (mo.e.x - mo.o.x) * k, mo.o.y + (mo.e.y - mo.o.y) * k + Math.sin(k * Math.PI) * 1.5, mo.o.z + (mo.e.z - mo.o.z) * k); g.rotation.x += dt * 10; continue; }
+    g.position.set(mo.e.x, mo.e.y - 0.08, mo.e.z); g.rotation.x = 0; g.rotation.y = Math.atan2(-(mo.o.x - mo.e.x), -(mo.o.z - mo.e.z)) + Math.sin(t * 11) * 0.12; // faces the thrower, wobbles
+    const clap = Math.abs(Math.sin(t * 11)); const cl = g.getObjectByName('cymL'), cr = g.getObjectByName('cymR');
+    if (cl) cl.rotation.y = -clap * 0.9; if (cr) cr.rotation.y = clap * 0.9;
+    const on = Math.sin(t * 22) > 0; mo.light.intensity = on ? 3 : 0.6; mo.light.color.setHex(on ? 0xff2a2a : 0xffd84d);
+    if (t - (mo.lastClang || 0) > 0.28) { mo.lastClang = t; const d = player.pos.distanceTo(g.position); clang(0.3 * Math.max(0.08, 1 - d / 40)); }
+    if (now >= mo.at) { explosion(new THREE.Vector3(mo.e.x, mo.e.y + 0.4, mo.e.z), MONO.radius, 0xffa23d); shake = Math.max(shake, 0.4); matchFx.remove(g); SV.monos.splice(i, 1); }
+  }
+  // interact prompt: mystery box / pickups
+  let pr = null;
+  if (player.alive && online.sv) {
+    const bx = SV.box?.position;
+    if (bx && Math.hypot(player.pos.x - bx.x, player.pos.z - bx.z) < 2.4) pr = { kind: 'box', text: `CAJA MISTERIOSA · ${SURV.boxCost} pts<small>${SV.myPts >= SURV.boxCost ? 'arma al azar (¡o la Mono Bomba!)' : 'te faltan ' + (SURV.boxCost - SV.myPts) + ' pts'}</small>` };
+    else for (const [id, k] of SV.pickups) if (Math.hypot(player.pos.x - k.x, player.pos.z - k.z) < 1.8) { pr = { kind: 'pick', id, text: `TOMAR ${WEAPONS[k.w].name.toUpperCase()}<small>${CLASS_NAMES[WEAPONS[k.w].cls] || ''}</small>` }; break; }
+  }
+  SV.prompt = pr;
+  $('use-prompt').innerHTML = pr ? pr.text + `<small>${IS_TOUCH ? 'toca ✋' : 'pulsa E'}</small>` : ''; $('use-prompt').classList.toggle('hidden', !pr);
+  $('btn-use').classList.toggle('hidden', !(pr && IS_TOUCH));
+  // HUD: wave / zombies / points / boss
+  const sv = online.sv;
+  if (sv) {
+    $('sv-wave').textContent = `OLEADA ${sv[0]} / ${SURV.waves}`;
+    $('sv-sub').textContent = sv[1] === 'break' ? (sv[0] ? `¡SUPERADA! SIGUIENTE EN ${sv[3]}s` : `EMPIEZA EN ${sv[3]}s`) : `ZOMBIS: ${sv[2]}`;
+  }
+  $('sv-pts').textContent = '💰 ' + SV.myPts;
+  const mono = online.survLo?.mono || 0; $('btn-mono').classList.toggle('hidden', !mono); $('btn-mono').dataset.n = mono;
+  let boss = null; online.remotes.forEach((r) => { if (r.zombie === 'boss' && r.alive) boss = r; });
+  $('boss-bar').classList.toggle('hidden', !boss); if (boss) $('boss-fill').style.width = Math.max(0, (boss.hp / boss.mh) * 100) + '%';
+}
+function survInteract() {
+  const pr = SV.prompt; if (!pr || !survActive()) return;
+  if (pr.kind === 'box') online.send({ t: 'box' }); else online.send({ t: 'pick', id: pr.id });
+}
+function throwMono() { if (survActive() && (online.survLo?.mono || 0) > 0) { throwNade('mono'); online.survLo.mono--; } }
+function onSurvLo(m) {
+  const had = online.survLo; online.survLo = { primary: m.primary, secondary: m.secondary, mono: m.mono, frag: m.frag };
+  const list = availableWeapons();
+  if (!list.includes(player.weapon)) { player.weapon = list[0]; switchWeapon(0, player.weapon); }
+  else if (had && had.primary !== m.primary && m.primary === list[0]) switchWeapon(0, m.primary);
+  else if (had && had.secondary !== m.secondary) switchWeapon(0, m.secondary);
+}
+function onBoxGot(m) {
+  if (m.w < 0) { banner('🐒 ¡MONO BOMBA! (' + (online.survLo?.mono || 2) + ') · ' + (IS_TOUCH ? 'toca 🐒' : 'pulsa T'), 2.4); return; }
+  const w = WEAPONS[m.w]; if (!w) return;
+  banner((m.pick ? 'TOMASTE: ' : '¡LA CAJA TE DA: ') + w.name.toUpperCase() + (m.pick ? '' : '!'), 2);
+  resetAmmo?.(); switchWeapon(0, m.w);
+}
+function onSurvKill(m) {
+  const r = online.remotes.get(m.victim);
+  if (r) { online.remotes.delete(m.victim); SV.corpses.push({ mesh: r.mesh, t: 0 }); }
+  if (m.killer === online.id) {
+    online.streakN = m.streak || (online.streakN || 0) + 1;
+    medal(m.zt === 'boss' ? '¡GLADIADOR ZOMBI ABATIDO!' : (m.head ? 'HEADSHOT' : 'ZOMBI') + ` +${m.pts || 0}`, m.zt === 'boss' ? 300 : 10);
+    if (m.multi >= 3) medal('MULTI ZOMBI x' + m.multi, 20);
+  }
+}
+function survEvent(m) {
+  if (m.ev === 'wave') { banner(`OLEADA ${m.wave}` + (m.boss ? ' · ¡JEFE: GLADIADOR ZOMBI!' : ''), 2.5); if (m.boss) shake = 0.3; }
+  if (m.ev === 'waveClear') { banner(`¡OLEADA ${m.wave} SUPERADA! +${m.bonus} pts`, 2.5); if (m.wave % 10 === 0) addXp(250, 'OLEADA ' + m.wave); }
+}
+function clearSurv() {
+  SV.box = null; SV.boxSpin = null; SV.pickups.clear(); SV.corpses.forEach((c) => scene.remove(c.mesh)); SV.corpses = []; SV.monos = []; SV.myPts = 0; SV.prompt = null;
+  online.sv = null; online.survLo = null; $('use-prompt')?.classList.add('hidden'); $('btn-use')?.classList.add('hidden'); $('boss-bar')?.classList.add('hidden');
 }
 
 // ---------------------------------------------------------------- menus / flow
@@ -1541,7 +1784,7 @@ function renderVote(l, myVote, winner) {
     const n = l.votes?.[id] || 0;
     const b = document.createElement('button');
     b.className = 'vote-card' + (id === myVote ? ' mine' : '') + (winner ? (id === winner ? ' win' : ' lose') : '');
-    b.innerHTML = `<b>${MAPS[id].name.toUpperCase()}</b><span class="cnt">${n} ${n === 1 ? 'voto' : 'votos'}</span>`;
+    b.innerHTML = `<b>${(MAPS[id] || HUBS[id]).name.toUpperCase()}</b><span class="cnt">${n} ${n === 1 ? 'voto' : 'votos'}</span>`;
     b.appendChild(mapPreview(id));
     const bar = document.createElement('div'); bar.className = 'vbar'; bar.innerHTML = `<i style="width:${Math.round((n / total) * 100)}%"></i>`; b.appendChild(bar);
     if (id === myVote) { const t = document.createElement('div'); t.className = 'tag-mine'; t.textContent = 'TU VOTO'; b.appendChild(t); }
@@ -1711,4 +1954,4 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // Debug/test hook (used by the headless screenshot script).
-window.__zstrike = { camera, WEAPONS, input, useStreakNow, streakReady, throwNade, startLocalMatch, enterHQ, openLoadout, closeLoadout, startMode, addXp, showUnlocked, get loadouts() { return loadouts; }, get hqNear() { return hqNear; }, setMap: (id) => { mapId = id; buildWorld(id); }, setTimeScale: (v) => (timeScale = v), startSolo, openShop, openOnline, goMenu, selectSection, setShowWeapon, switchWeapon, addKill, damageEnemy, player, get enemies() { return enemies; }, get mode() { return mode; }, online, look };
+window.__zstrike = { camera, WEAPONS, input, SV, throwMono, survInteract, useStreakNow, streakReady, throwNade, startLocalMatch, enterHQ, openLoadout, closeLoadout, startMode, addXp, showUnlocked, get loadouts() { return loadouts; }, get hqNear() { return hqNear; }, setMap: (id) => { mapId = id; buildWorld(id); }, setTimeScale: (v) => (timeScale = v), startSolo, openShop, openOnline, goMenu, selectSection, setShowWeapon, switchWeapon, addKill, damageEnemy, player, get enemies() { return enemies; }, get mode() { return mode; }, online, look };

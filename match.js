@@ -2,7 +2,7 @@
 // Runs on the Node server for online lobbies AND in the browser for offline "VS BOTS" matches,
 // so hits, damage, scorestreaks, perks and objectives follow exactly the same rules.
 // The host provides L.bcast(msg) (to everyone) and L.sendTo(player, msg).
-import { WEAPONS, MODES, STREAKS, PERK_IDS } from './config.js';
+import { WEAPONS, MODES, STREAKS, PERK_IDS, ZTYPES, SURV, MONO } from './config.js';
 import { rayHitPlayer } from './map.js';
 import { flowField, flowDir } from './ai.js';
 
@@ -14,7 +14,8 @@ const rnd = (a) => a[Math.floor(Math.random() * a.length)];
 const dist2 = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 
 // ------------------------------------------------------------ setup
-export function initMatch(L, { mode = null, botSkill = 1, bcast, sendTo, onEnd, scoreLimit, seconds }) {
+export function initMatch(L, { mode = null, botSkill = 1, bcast, sendTo, onEnd, scoreLimit, seconds, survStart = 1 }) {
+  L.survStart = Math.max(1, Math.min(SURV.waves, survStart | 0));
   L.mode = MODES[mode] ? mode : null;          // null = v1 free-for-all (paid / free test lobbies)
   L.legacy = !L.mode;
   L.M = L.mode ? MODES[L.mode] : null;
@@ -46,6 +47,7 @@ export function setLoadout(L, p, lo) {
   p.nades.frag = hasPerk(L, p, 'bolsillo') ? 2 : 1;
 }
 function allowed(L, p, w) { return L.legacy ? w >= 0 && w <= 2 : w === p.loadout.primary || w === p.loadout.secondary; }
+const isZombie = (p) => !!p.zombie;
 
 // ------------------------------------------------------------ objectives
 function nearestFree(map, x, z) {
@@ -66,6 +68,11 @@ function setupObjectives(L) {
 function objState(L) {
   if (L.mode === 'dom') return { f: L.flags.map((f) => [f.id, +f.x.toFixed(1), +f.z.toFixed(1), f.owner, +f.prog.toFixed(2)]) };
   if (L.mode === 'ctf') return { c: L.ctf.map((f) => [f.team, +f.x.toFixed(1), +f.z.toFixed(1), f.carrier, f.home.x, f.home.z]) };
+  if (L.mode === 'surv') {
+    const S = L.surv, zs = [...L.players.values()].filter(isZombie).length;
+    return { sv: [S.wave, S.phase, S.toSpawn + zs, Math.max(0, Math.ceil((S.nextAt - Date.now()) / 1000))], bx: [S.box.x, S.box.z, SURV.boxCost],
+      pk: S.pickups.map((k) => [k.id, +k.x.toFixed(1), +k.z.toFixed(1), k.w]), lu: S.lures.filter((l) => l.active).map((l) => [+l.x.toFixed(1), +l.z.toFixed(1)]) };
+  }
   if (L.mode === 'snd') {
     const s = L.snd, b = s.bomb; let plant = 0; for (const v of s.plant.values()) plant = Math.max(plant, v);
     return { s: L.sites.map((x) => [x.id, x.x, x.z]), r: s.round, w: s.wins, ph: s.phase, b: b && [+b.x.toFixed(1), +b.z.toFixed(1), Math.max(0, Math.ceil((b.explodeAt - Date.now()) / 1000))], pl: +plant.toFixed(2), df: +s.defuse.toFixed(2), t: Math.max(0, Math.ceil((s.roundEndsAt - Date.now()) / 1000)) };
@@ -79,6 +86,7 @@ export function beginMatch(L) {
   if (L.teamMode) { let i = 0; for (const p of L.players.values()) { p.team = p.side = i % 2; i++; } }
   else { let i = 0; for (const p of L.players.values()) { p.side = i % 2; p.team = 10 + i; i++; } }
   if (!L.legacy) setupObjectives(L);
+  if (L.mode === 'surv') { for (const p of L.players.values()) { p.team = p.side = 0; } setupSurv(L); }
   for (const p of L.players.values()) {
     placeAtSpawn(L, p, true);
     if (p.conn) L.sendTo(p, { t: 'start', map: L.mapId, secondsLeft: L.seconds, spawn: { x: p.x, z: p.z }, board: board(L), mode: L.mode, legacy: L.legacy, team: p.team, teamMode: L.teamMode, scoreLimit: L.scoreLimit, obj: objState(L) });
@@ -104,13 +112,13 @@ function placeAtSpawn(L, p, first) {
   const x = x0 + (first && !L.legacy ? (Math.random() - 0.5) * 0.6 : 0), z = z0;
   Object.assign(p, { x, y: L.map.groundUnder(x, z, 0.3), z, hp: MAX_HP, alive: true, lastStateAt: Date.now(), yaw: z > L.map.l / 2 ? 0 : Math.PI,
     ammo: {}, reloadUntil: {}, secondUsed: false, flashedUntil: 0 });
-  p.nades = { frag: hasPerk(L, p, 'bolsillo') ? 2 : 1, flash: 1 };
+  p.nades = { frag: hasPerk(L, p, 'bolsillo') ? 2 : 1, flash: 1, mono: p.nades?.mono || 0 };
 }
 function respawn(L, p) {
   placeAtSpawn(L, p, false);
   L.bcast({ t: 'respawn', id: p.id, x: p.x, z: p.z });
 }
-export function board(L) { return [...L.players.values()].map((p) => ({ id: p.id, name: p.name, kills: p.kills, deaths: p.deaths, bot: p.bot, team: p.team, caps: p.caps })); }
+export function board(L) { return [...L.players.values()].filter((p) => !p.zombie).map((p) => ({ id: p.id, name: p.name, kills: p.kills, deaths: p.deaths, bot: p.bot, team: p.team, caps: p.caps, score: Math.round(p.score || 0) })); }
 
 // ------------------------------------------------------------ combat
 function aimRay(L, p, o, d) {
@@ -209,7 +217,9 @@ function kill(L, by, t, head, wIdx) {
     if (!L.legacy && wIdx >= 0) { by.streak++; streakN = by.streak; for (const s of STREAKS) if (by.streak === s.kills && !by.ready.has(s.id)) { by.ready.add(s.id); L.sendTo(by, { t: 'streakReady', id: s.id }); } }
     if (L.mode === 'tdm') L.score[by.team]++;
   }
-  L.bcast({ t: 'kill', killer: by.id, victim: t.id, head, w: wIdx, multi, streak: streakN, first: L.firstBlood ? 0 : 1 });
+  let pts = 0;
+  if (t.zombie && !by.zombie) { pts = Math.round(ZTYPES[t.zombie].pts * (head ? 1.3 : 1)); by.score = (by.score || 0) + pts; t.deadAt = now; }
+  L.bcast({ t: 'kill', killer: by.id, victim: t.id, head, w: wIdx, multi, streak: streakN, first: L.firstBlood ? 0 : 1, pts: pts || undefined, zt: t.zombie || undefined });
   L.firstBlood = true;
   L.bcast({ t: 'score', board: board(L), sc: L.score });
   checkLimits(L);
@@ -231,7 +241,7 @@ export function useStreak(L, p, id, arg = {}) {
   if (id === 'heli') { const h = { owner: p.id, team: p.team, until: now + 25000, ang: Math.random() * 6, x: L.map.w / 2, y: 9, z: L.map.l / 2, cd: 1 }; L.helis.push(h); L.bcast({ t: 'streak', id, by: p.id, team: p.team, until: h.until }); }
 }
 export function throwNade(L, p, kind, o0, d0) {
-  if (L.legacy || !p.alive || L.state !== 'playing' || !(kind === 'frag' || kind === 'flash') || !(p.nades[kind] > 0)) return;
+  if (L.legacy || !p.alive || L.state !== 'playing' || !(kind === 'frag' || kind === 'flash' || (kind === 'mono' && L.mode === 'surv')) || !(p.nades[kind] > 0)) return;
   const r = aimRay(L, p, o0, d0); if (!r) return; p.nades[kind]--;
   const { o, d } = r, now = Date.now();
   const pos = { ...o }, v = { x: d.x * 15, y: d.y * 15 + 3, z: d.z * 15 }; let stuck = false;
@@ -245,6 +255,15 @@ export function throwNade(L, p, kind, o0, d0) {
     Object.assign(pos, np);
   }
   pos.y = Math.max(pos.y, L.map.heightAt(pos.x, pos.z) + 0.1);
+  if (kind === 'mono') { // lands, clangs + flashes for 5 s (zombies chase it), then explodes
+    const land = now + 900, at = land + SURV.monoLureMs, lure = { x: pos.x, z: pos.z, active: false, until: at };
+    L.surv.lures.push(lure);
+    L.bcast({ t: 'nade', kind, by: p.id, o, e: pos, land, at });
+    L.pending.push({ at: land, fn: () => { lure.active = true; } });
+    L.pending.push({ at, fn: () => { lure.active = false; splash(L, p, pos, null, MONO.radius, MONO.damage, -8); } });
+    sendSurvLo(L, p);
+    return;
+  }
   L.bcast({ t: 'nade', kind, by: p.id, o, e: pos, at: now + FUSE * 1000 });
   L.pending.push({ at: now + FUSE * 1000, fn: () => {
     if (kind === 'frag') return splash(L, p, pos, null, 4.2, 130, -4);
@@ -282,6 +301,8 @@ export function handleMsg(L, p, m) {
     case 'nade': if (m.o && m.d) throwNade(L, p, String(m.kind), { x: +m.o.x, y: +m.o.y, z: +m.o.z }, { x: +m.d.x, y: +m.d.y, z: +m.d.z }); break;
     case 'fall': fallDamage(L, p, m.dmg); break;
     case 'loadout': setLoadout(L, p, m.lo); break;
+    case 'box': if (L.mode === 'surv') openBox(L, p); break;
+    case 'pick': if (L.mode === 'surv') pickUp(L, p, m.id | 0); break;
   }
 }
 
@@ -331,6 +352,7 @@ function botGoal(L, b) {
     if (own.carrier === null && (own.x !== own.home.x || own.z !== own.home.z)) return own;   // return dropped flag
     return ai.role < 0.75 ? enemy : own.home;
   }
+  if (L.mode === 'surv') return { x: L.map.w / 2 + (ai.role - 0.5) * 8, z: L.map.l / 2 + Math.sin(ai.role * 20) * 4 };
   if (L.mode === 'snd') {
     const s = L.snd, site = L.sites[ai.role < 0.5 ? 0 : 1];
     if (s.bomb) return b.team === 1 ? s.bomb : { x: s.bomb.x + (ai.role - 0.5) * 6, z: s.bomb.z + 2 };
@@ -510,17 +532,144 @@ export function tickMatch(L, dt, now = Date.now()) {
   for (let i = L.pending.length - 1; i >= 0; i--) if (now >= L.pending[i].at) { const e = L.pending[i]; L.pending.splice(i, 1); e.fn(); if (L.state !== 'playing') return; }
   const respawns = L.legacy || L.M.respawn;
   for (const p of L.players.values()) {
+    if (p.zombie) continue;
     if (!p.alive && respawns && now >= p.respawnAt) respawn(L, p);
     if (p.bot) botThink(L, p, dt);
   }
   if (!L.legacy) { tickObjectives(L, dt, now); tickHelis(L, dt, now); L.uav = L.uav.filter((u) => u.until > now); }
+  if (L.mode === 'surv') tickSurv(L, dt, now);
   if (L.state !== 'playing') return;
-  const snap = { t: 'snap', p: [...L.players.values()].map((p) => ({ id: p.id, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), yaw: +p.yaw.toFixed(2), hp: Math.round(p.hp), alive: p.alive, bot: p.bot, tm: p.team, g: hasPerk(L, p, 'fantasma') ? 1 : 0, w: p.bot && !L.legacy ? p.loadout.primary : undefined })) };
+  const snap = { t: 'snap', p: [...L.players.values()].map((p) => p.zombie
+    ? { id: p.id, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), yaw: +p.yaw.toFixed(2), hp: Math.round(p.hp), mh: p.maxHp, alive: p.alive, tm: 1, zt: p.zombie }
+    : { id: p.id, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), yaw: +p.yaw.toFixed(2), hp: Math.round(p.hp), alive: p.alive, bot: p.bot, tm: p.team, g: hasPerk(L, p, 'fantasma') ? 1 : 0, w: p.bot && !L.legacy ? p.loadout.primary : undefined, pt: L.mode === 'surv' ? Math.round(p.score || 0) : undefined }) };
   if (!L.legacy) {
     snap.sc = L.score; snap.u = L.uav.map((u) => [u.team, u.owner]);
     if (L.helis.length) snap.h = L.helis.map((h) => [+h.x.toFixed(1), h.y, +h.z.toFixed(1), +h.ang.toFixed(2), h.team, h.owner]);
-    if ((L.snapN++ % 4) === 0) snap.o = objState(L);
+    if ((L.snapN++ % 4) === 0 || L.objDirty) { snap.o = objState(L); L.objDirty = false; }
   }
   L.bcast(snap);
   if (now >= L.endsAt) finish(L);
+}
+
+// ------------------------------------------------------------ Survive the 150 (co-op zombie waves)
+// Zombies live in L.players (team 1) so every weapon, splash, streak and heli already hits them server-side.
+const BOX_POOL = WEAPONS.map((w, i) => i);                 // ALL weapons (v1 + v2) ...
+const PICKUP_POOL = WEAPONS.map((w, i) => (w.legacy ? -1 : i)).filter((i) => i >= 0);
+function setupSurv(L) {
+  const m = L.map, free = m.freeCells().filter(([x, z]) => Math.hypot(x - m.w / 2, z - m.l / 2) < 13.5);
+  L.surv = { wave: L.survStart - 1, phase: 'break', nextAt: Date.now() + SURV.firstBreakMs, toSpawn: 0, queue: [], spawnAt: 0, zid: 0, pid: 0,
+    gates: m.gates || [[m.w / 2, 2.5], [m.w / 2, m.l - 2.5]], box: m.box || { x: m.w / 2, z: m.l / 2 + 6 }, free, pickups: [], lures: [], boxBusy: new Map() };
+  for (const p of L.players.values()) { p.score = 0; p.nades.mono = 0; }
+  refillPickups(L);
+}
+function refillPickups(L) {
+  const S = L.surv;
+  while (S.pickups.length < SURV.pickups && S.free.length) {
+    const [x, z] = S.free[Math.floor(Math.random() * S.free.length)];
+    if (S.pickups.some((k) => Math.hypot(k.x - x, k.z - z) < 4) || Math.hypot(x - S.box.x, z - S.box.z) < 3) { if (Math.random() < 0.9) continue; }
+    S.pickups.push({ id: ++S.pid, x, z, w: rnd(PICKUP_POOL) });
+  }
+  L.objDirty = true;
+}
+export function waveSpec(n) {
+  return { total: Math.min(60, 5 + Math.round(n * 1.4)), hpK: 1 + n * 0.045, spK: Math.min(1.55, 1 + n * 0.006), dmgK: 1 + n * 0.02,
+    bosses: n % 10 === 0 ? 1 + Math.floor(n / 60) : 0, runnerP: n < 4 ? 0 : Math.min(0.45, 0.1 + n * 0.006), bruteP: n < 8 ? 0 : Math.min(0.25, 0.04 + n * 0.0025) };
+}
+function startWave(L, now) {
+  const S = L.surv; S.wave++; S.phase = 'wave';
+  const sp = waveSpec(S.wave), q = [];
+  for (let i = 0; i < sp.total; i++) { const r = Math.random(); q.push(r < sp.bruteP ? 'brute' : r < sp.bruteP + sp.runnerP ? 'runner' : 'walker'); }
+  for (let i = q.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [q[i], q[j]] = [q[j], q[i]]; }
+  for (let i = 0; i < sp.bosses; i++) q.splice(Math.floor(q.length * 0.4), 0, 'boss');
+  S.queue = q; S.toSpawn = q.length; S.spawnAt = now + 800; S.spec = sp;
+  for (const p of L.players.values()) if (!p.zombie && !p.alive) { placeAtSpawn(L, p, true); p.respawnAt = 0; L.bcast({ t: 'respawn', id: p.id, x: p.x, z: p.z }); sendSurvLo(L, p); }
+  L.bcast({ t: 'obj', ev: 'wave', wave: S.wave, total: q.length, boss: sp.bosses });
+  L.objDirty = true;
+}
+function spawnZombie(L, type) {
+  const S = L.surv, T = ZTYPES[type], sp = S.spec, [gx, gz] = S.gates[Math.floor(Math.random() * S.gates.length)];
+  const x = gx + (Math.random() - 0.5) * 1.6, z = gz + (Math.random() - 0.5) * 1.6;
+  const hp = Math.round(T.hp * sp.hpK);
+  const zb = { id: 'Z' + (++S.zid), name: T.name, zombie: type, conn: null, bot: false, x, y: L.map.groundUnder(x, z, 0.3), z, yaw: 0, pitch: 0, hp, maxHp: hp, alive: true,
+    kills: 0, deaths: 0, lastKillAt: 0, multi: 0, team: 1, side: 1, loadout: { primary: -1, secondary: -1, perks: [] }, ammo: {}, reloadUntil: {}, lastShot: {}, ready: new Set(),
+    nades: {}, streak: 0, score: 0, sc: T.scale, sp: T.sp * sp.spK * (0.9 + Math.random() * 0.2), dmg: T.dmg * sp.dmgK, atkAt: 0, lastShotAt: 0, caps: 0, flashedUntil: 0 };
+  L.players.set(zb.id, zb);
+}
+function zombieThink(L, zb, dt, now, humans, zs) {
+  if (!zb.alive) return;
+  const S = L.surv;
+  let tgt = null, td = 1e9, lure = null;
+  for (const l of S.lures) if (l.active) { const d = Math.hypot(l.x - zb.x, l.z - zb.z); if (d < 30 && d < td) { td = d; lure = l; } }
+  if (lure) tgt = lure;
+  else for (const h of humans) if (h.alive) { const d = Math.hypot(h.x - zb.x, h.z - zb.z); if (d < td) { td = d; tgt = h; } }
+  if (zb.flashedUntil > now || !tgt) return;
+  let dir = { x: 0, z: 0 };
+  if (td > (lure ? 0.6 : 0.95)) {
+    if (td < 3) dir = { x: (tgt.x - zb.x) / td, z: (tgt.z - zb.z) / td };
+    else dir = flowDir(L.map, flowTo(L, tgt.x, tgt.z), zb, tgt.x, tgt.z);
+  }
+  for (const o of zs) { // don't stack on top of each other
+    if (o === zb || !o.alive) continue; const dx = zb.x - o.x, dz = zb.z - o.z, d = Math.hypot(dx, dz);
+    if (d < 0.7 && d > 1e-3) { dir.x += (dx / d) * 0.6; dir.z += (dz / d) * 0.6; }
+  }
+  const sp = zb.sp * dt; L.map.moveWalker(zb, dir.x * sp, dir.z * sp, 0.3);
+  if (dir.x || dir.z) zb.yaw = Math.atan2(-(tgt.x - zb.x), -(tgt.z - zb.z));
+  if (!lure && td < (zb.zombie === 'boss' ? 1.8 : 1.2) && now >= zb.atkAt && Math.abs((tgt.y || 0) - zb.y) < 1.5) {
+    zb.atkAt = now + (zb.zombie === 'runner' ? 700 : 1000);
+    damage(L, zb, tgt, zb.dmg, false, -7, 'zombie');
+  }
+}
+function sendSurvLo(L, p) { if (p.conn) L.sendTo(p, { t: 'survLo', primary: p.loadout.primary, secondary: p.loadout.secondary, mono: p.nades.mono || 0, frag: p.nades.frag || 0 }); }
+function giveWeapon(L, p, w) {
+  const slot = WEAPONS[w].slot === 'secondary' ? 'secondary' : 'primary', old = p.loadout[slot];
+  p.loadout[slot] = w; delete p.ammo[w]; p.reloadUntil[w] = 0;
+  sendSurvLo(L, p);
+  return { slot, old };
+}
+function openBox(L, p) {
+  const S = L.surv, now = Date.now();
+  if (!p.alive || L.state !== 'playing' || Math.hypot(p.x - S.box.x, p.z - S.box.z) > 2.6) return;
+  if ((S.boxBusy.get(p.id) || 0) > now || (p.score || 0) < SURV.boxCost) return L.sendTo(p, { t: 'boxNo', need: SURV.boxCost, have: Math.round(p.score || 0) });
+  p.score -= SURV.boxCost; S.boxBusy.set(p.id, now + 2600);
+  const mono = Math.random() < 0.12, w = mono ? -1 : rnd(BOX_POOL);              // ... plus the Mono Bomba
+  L.bcast({ t: 'boxOpen', by: p.id, w, at: now + 2200 });
+  L.pending.push({ at: now + 2200, fn: () => {
+    if (mono) { p.nades.mono = Math.min(SURV.monoMax, (p.nades.mono || 0) + 2); sendSurvLo(L, p); }
+    else giveWeapon(L, p, w);
+    L.sendTo(p, { t: 'boxGot', w });
+  } });
+}
+function pickUp(L, p, id) {
+  const S = L.surv, k = S.pickups.find((x) => x.id === id);
+  if (!k || !p.alive || Math.hypot(p.x - k.x, p.z - k.z) > 2.0) return;
+  const { old } = giveWeapon(L, p, k.w);
+  if (old >= 0 && !WEAPONS[old].legacy) k.w = old; else S.pickups.splice(S.pickups.indexOf(k), 1); // swap: your old gun stays on the floor
+  L.sendTo(p, { t: 'boxGot', w: p.loadout[WEAPONS[k.w]?.slot === 'secondary' ? 'secondary' : 'primary'], pick: 1 });
+  L.objDirty = true;
+}
+function tickSurv(L, dt, now) {
+  const S = L.surv, all = [...L.players.values()];
+  for (const p of all) if (p.zombie && !p.alive && now - (p.deadAt || 0) > 100) L.players.delete(p.id);
+  const humans = all.filter((p) => !p.zombie), zs = all.filter((p) => p.zombie && p.alive);
+  const core = humans.filter((p) => !p.bot), pool = core.length ? core : humans;  // all-bot sims: bots count as players
+  if (!pool.some((p) => p.alive)) return finishSurv(L, false);
+  if (S.phase === 'break') { if (now >= S.nextAt) startWave(L, now); }
+  else {
+    if (S.toSpawn > 0 && zs.length < SURV.maxAlive && now >= S.spawnAt) { spawnZombie(L, S.queue.pop()); S.toSpawn--; S.spawnAt = now + Math.max(220, 1100 - S.wave * 7); }
+    if (S.toSpawn <= 0 && !zs.length) {
+      for (const p of humans) if (p.alive) p.score = (p.score || 0) + 100 + S.wave * 10;
+      L.bcast({ t: 'obj', ev: 'waveClear', wave: S.wave, bonus: 100 + S.wave * 10 });
+      if (S.wave >= SURV.waves) return finishSurv(L, true);
+      S.phase = 'break'; S.nextAt = now + SURV.breakMs; refillPickups(L);
+      for (const p of humans) { p.nades.frag = Math.max(p.nades.frag || 0, hasPerk(L, p, 'bolsillo') ? 2 : 1); sendSurvLo(L, p); }
+      L.objDirty = true;
+    }
+  }
+  for (const zb of zs) zombieThink(L, zb, dt, now, humans, zs);
+  S.lures = S.lures.filter((l) => l.until > now);
+}
+function finishSurv(L, win) {
+  if (L.state !== 'playing') return;
+  const S = L.surv; L.state = 'ended';
+  L.onEnd?.(L, { winTeam: win ? 0 : 1, sc: [win ? SURV.waves : S.wave - 1, SURV.waves], surv: { wave: S.wave, win } });
 }

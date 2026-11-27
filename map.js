@@ -320,18 +320,37 @@ export const HQ_PORTALS = [
 export const HQ_BENCH = { x: 7.5, z: 16.5, r: 2.4 };
 export const HQ_RANGE = { x0: 21, x1: 31, z0: 8, z1: 25 };
 export const HQ_SPAWN = { x: 16.5, z: 6.5 };
+// Coliseo courtyard (east wing of the HQ): a voxel mini-colosseum; its glowing centre is the gate to Survive the 150.
+export const HQ_COLISEO = { x: 42.5, z: 18.5, r: 1.6, R: 8.3 };
 export const HUBS = {
   hq: {
-    name: 'HQ', desc: 'Base de operaciones', w: 33, l: 40, hidden: true,
+    name: 'HQ', desc: 'Base de operaciones', w: 53, l: 40, hidden: true,
     theme: {
       floor: ['#0d1a1f', '#2fd6c8'], bg: 0x081218,
       1: ['#14232b', '#3fe3ff'], 2: ['#1d2f3a', '#9fd6ff'], 3: ['#4a3420', '#ffb347'],
       4: ['#203a48', '#3fe3ff'], 5: ['#2d3a4a', '#c9e6ff'], 6: ['#3a1440', '#ff3df2'],
       7: ['#0f8fae', '#7df9ff'], 8: ['#b0249f', '#ff8af6'], glow: [7, 8],
-      strip: 0x3fe3ff, preview: ['#0d1a1f', '#3fe3ff', '#9fd6ff', '#ffb347', '#3fe3ff', '#c9e6ff', '#ff3df2', '#3fe3ff', '#ff8af6'],
+      9: ['#b8a07a', '#e0cba0'], 10: ['#a58e68', '#d6c096', 'arch'], 11: ['#8a6a40', '#c49a62'], 12: ['#3a2e22', '#5a4632'],
+      strip: 0x3fe3ff, preview: ['#0d1a1f', '#3fe3ff', '#9fd6ff', '#ffb347', '#3fe3ff', '#c9e6ff', '#ff3df2', '#3fe3ff', '#ff8af6', '#e0cba0', '#d6c096', '#c49a62', '#3a2e22'],
     },
     build(set, m) {
       const F = (x0, x1, z0, z1, hh, k) => { for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) set(x, z, hh, k); };
+      // east wing: wall where the old edge was, with a gateway (z 27..32) into the Coliseo courtyard
+      F(32, 32, 1, 38, 4, 2); F(32, 32, 27, 32, 0, 0); set(32, 26, 4, 9); set(32, 33, 4, 9);
+      { // mini colosseum: arcade ring (pillars + arches), ruined south-east side, gate facing north, wooden arena inside
+        const C = HQ_COLISEO;
+        for (let x = 33; x <= 51; x++) for (let z = 4; z <= 33; z++) {
+          const dx = x + 0.5 - C.x, dz = z + 0.5 - C.z, d = Math.hypot(dx, dz), a = Math.atan2(dz, dx);
+          if (d < 6.3) { set(x, z, d < 1.8 ? 0.1 : 0.05, d < 1.8 ? 7 : 11); continue; }
+          if (d >= C.R) continue;
+          if (Math.abs(dx) < 1.6 && dz > 0) continue;                          // gate (north, toward the gateway)
+          if (Math.abs(dx) < 2.6 && dz > 0) { set(x, z, 4, 9); continue; }      // gate pillars
+          const pillar = Math.floor((a + Math.PI) / (2 * Math.PI) * 28) % 2 === 0;
+          let hh = d < 7.3 ? (pillar ? 3.8 : 2.6) : (pillar ? 3.2 : 2.2);
+          if (a > -1.3 && a < -0.4) hh *= 0.45 + 0.4 * (((x * 7 + z * 13) % 5) / 5); // ruins
+          set(x, z, Math.max(1.9, hh), pillar ? 9 : 10);
+        }
+      }
       // helipad: glowing H on a low pad
       F(14, 19, 4, 9, 0.1, 5); F(15, 15, 5, 8, 0.12, 7); F(18, 18, 5, 8, 0.12, 7); F(16, 17, 6, 7, 0.12, 7);
       // weapon bench (west): table + glowing trim + lockers
@@ -353,6 +372,49 @@ export const HUBS = {
       // north wall with 5 portals (2-wide openings framed by glowing pillars)
       F(1, 31, 37, 38, 3.6, 2);
       for (const p of HQ_PORTALS) { set(p.x0 - 1, 36, 3.6, 8); set(p.x1 + 1, 36, 3.6, 8); F(p.x0, p.x1, 37, 37, 3.6, 7); }
+    },
+  },
+  // Survive the 150 arena (original voxel take on a Roman amphitheatre): wooden plank floor, low podium wall,
+  // 3 tiers of stone stands with arch rows, an outer arcade, a ruined side and 4 arched tunnels where zombies come in.
+  coliseo: {
+    name: 'El Coliseo', desc: 'Arena circular de madera rodeada de gradas de piedra con arcos.', w: 46, l: 46, hidden: true,
+    spawnPts: [[[21.5, 21.5], [24.5, 21.5], [21.5, 24.5], [24.5, 24.5]], [[21.5, 21.5], [24.5, 21.5], [21.5, 24.5], [24.5, 24.5]]],
+    gates: [[41.0, 23], [23, 41.0], [5.0, 23], [23, 5.0]],
+    box: { x: 23, z: 31.5 },
+    theme: {
+      floor: ['#c9a77a', '#e8d2a8'], bg: 0xcdb894, planks: true, hemi: [0xfff1d6, 0x6a5030, 1.25],
+      1: ['#9c8a6a', '#c8b48e'], 2: ['#b8a07a', '#e0cba0'], 3: ['#6a4a2a', '#a07040'], 4: ['#a58e68', '#d6c096'],
+      5: ['#8f7a58', '#bfa77e'], 6: ['#5a4632', '#8a6a4a'], 7: ['#ffb347', '#fff0c0'], 8: ['#ff7a1a', '#ffd27a'], glow: [7, 8],
+      9: ['#b8a07a', '#e0cba0'], 10: ['#a58e68', '#d6c096', 'arch'], 11: ['#8a6a40', '#c49a62'], 12: ['#3a2e22', '#5a4632'],
+      strip: 0xffb347, preview: ['#e8d2a8', '#c8b48e', '#e0cba0', '#a07040', '#d6c096', '#bfa77e', '#8a6a4a', '#fff0c0', '#ffd27a', '#e0cba0', '#d6c096', '#c49a62', '#3a2e22'],
+    },
+    build(set, m) {
+      const W = m.w, c = W / 2;
+      const hash = (x, z) => (((x * 73856093) ^ (z * 19349663)) >>> 0) % 1000 / 1000;
+      for (let x = 1; x < W - 1; x++) for (let z = 1; z < m.l - 1; z++) {
+        const dx = x + 0.5 - c, dz = z + 0.5 - c, r = Math.hypot(dx, dz), a = Math.atan2(dz, dx);
+        if (r < 15) continue;
+        // tunnels on the 4 axes: open floor between tunnel walls, closed by a dark gate at the back
+        const ax = Math.abs(dx) < Math.abs(dz) ? Math.abs(dx) : Math.abs(dz);
+        if (ax < 1.6 && r < 20.5) continue;
+        if (ax < 1.6 && r < 22.5) { set(x, z, 4, 12); continue; }
+        if (ax < 2.6 && r < 22.5) { set(x, z, 4, 9); continue; }
+        const ruin = a > 0.45 && a < 1.5 ? 0.35 + 0.55 * hash(x, z) : 1;     // collapsed stands on one side
+        let hh, k;
+        if (r < 16) { hh = 2.0; k = 9; }                                       // podium wall (stays whole)
+        else if (r < 17.5) { hh = 2.6; k = 10; }
+        else if (r < 19) { hh = 3.2; k = 10; }
+        else if (r < 20.5) { hh = 3.8; k = 9; }
+        else { const pillar = Math.floor((a + Math.PI) / (2 * Math.PI) * 56) % 2 === 0; hh = pillar ? 4 : 3.4; k = pillar ? 9 : 12; }
+        if (r >= 16) hh = Math.max(2.1, hh * ruin);
+        set(x, z, hh, k);
+      }
+      // arena props: broken columns, wooden barricades, crates, torches by the gates, mystery box plinth
+      for (const [x, z] of [[16, 16], [29, 16], [16, 29], [29, 29]]) { set(x, z, 2.6, 9); }
+      for (const [x, z] of [[17, 22], [17, 23], [28, 22], [28, 23], [22, 16], [23, 16]]) set(x, z, 1.0, 11);
+      for (const [x, z, hh] of [[12, 19, 0.9], [33, 26, 0.9], [19, 33, 1.3], [26, 12, 1.3]]) set(x, z, hh, 3);
+      for (const [x, z] of [[37, 20], [37, 25], [20, 37], [25, 37], [8, 20], [8, 25], [20, 8], [25, 8]]) set(x, z, 2.4, 8);
+      set(22, 31, 0.9, 11); set(23, 31, 0.9, 11);
     },
   },
 };
@@ -383,7 +445,7 @@ export function createMap(id = DEFAULT_MAP) {
   };
   def.build(set, { w: W, l: L }, h);
 
-  const m = { id: MAPS[id] || HUBS[id] ? id : DEFAULT_MAP, name: def.name, w: W, l: L, heights, kind, theme: def.theme || DEFAULT_THEME };
+  const m = { id: MAPS[id] || HUBS[id] ? id : DEFAULT_MAP, name: def.name, w: W, l: L, heights, kind, theme: def.theme || DEFAULT_THEME, gates: def.gates || null, box: def.box || null };
   m.heightAtCell = (i, j) => (i < 0 || j < 0 || i >= W || j >= L) ? WALL_H : heights[i + j * W];
   m.heightAt = (x, z) => m.heightAtCell(Math.floor(x), Math.floor(z));
   m.groundUnder = (x, z, r) => {
@@ -419,6 +481,7 @@ export function createMap(id = DEFAULT_MAP) {
     if (m.groundUnder(x, dz, 0.5) === 0) m.spawns[0].push([x, dz]);
     if (m.groundUnder(x, L - dz, 0.5) === 0) m.spawns[1].push([x, L - dz]);
   }
+  if (def.spawnPts) m.spawns = def.spawnPts.map((side) => side.map((p) => p.slice()));
   m.freeCells = () => {
     const out = [];
     for (let i = 1; i < W - 1; i++) for (let j = 1; j < L - 1; j++)
@@ -445,8 +508,9 @@ export function rayBox(o, d, min, max) {
 export const BODY = { r: 0.35, h: 1.35 };
 export const HEAD = { r: 0.25, y0: 1.35, y1: 1.85 };
 export function rayHitPlayer(o, d, p) {
-  const tb = rayBox(o, d, { x: p.x - BODY.r, y: p.y, z: p.z - BODY.r }, { x: p.x + BODY.r, y: p.y + BODY.h, z: p.z + BODY.r });
-  const th = rayBox(o, d, { x: p.x - HEAD.r, y: p.y + HEAD.y0, z: p.z - HEAD.r }, { x: p.x + HEAD.r, y: p.y + HEAD.y1, z: p.z + HEAD.r });
+  const k = p.sc || 1; // big zombies (brute / boss) have bigger hitboxes, matching their model
+  const tb = rayBox(o, d, { x: p.x - BODY.r * k, y: p.y, z: p.z - BODY.r * k }, { x: p.x + BODY.r * k, y: p.y + BODY.h * k, z: p.z + BODY.r * k });
+  const th = rayBox(o, d, { x: p.x - HEAD.r * k, y: p.y + HEAD.y0 * k, z: p.z - HEAD.r * k }, { x: p.x + HEAD.r * k, y: p.y + HEAD.y1 * k, z: p.z + HEAD.r * k });
   if (th >= 0 && (tb < 0 || th <= tb)) return { t: th, head: true };
   if (tb >= 0) return { t: tb, head: false };
   return null;
