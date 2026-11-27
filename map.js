@@ -168,8 +168,54 @@ export const MAPS = {
 };
 export const DEFAULT_MAP = 'carriles';
 
+// Non-playable hub maps (not in votes / map pickers).
+// HQ: walkable third-person base. Spawn helipad (south), weapon bench (west),
+// firing range (east), stream + bridge, vehicle bay and 5 mode portals (north wall).
+export const HQ_PORTALS = [
+  { mode: 'tdm', x: 3 }, { mode: 'ffa', x: 9 }, { mode: 'dom', x: 15 }, { mode: 'snd', x: 21 }, { mode: 'ctf', x: 27 },
+].map((p) => ({ ...p, x0: p.x, x1: p.x + 1, z: 36 }));
+export const HQ_BENCH = { x: 7.5, z: 16.5, r: 2.4 };
+export const HQ_RANGE = { x0: 21, x1: 31, z0: 8, z1: 25 };
+export const HQ_SPAWN = { x: 16.5, z: 6.5 };
+export const HUBS = {
+  hq: {
+    name: 'HQ', desc: 'Base de operaciones', w: 33, l: 40, hidden: true,
+    theme: {
+      floor: ['#0d1a1f', '#2fd6c8'], bg: 0x081218,
+      1: ['#14232b', '#3fe3ff'], 2: ['#1d2f3a', '#9fd6ff'], 3: ['#4a3420', '#ffb347'],
+      4: ['#203a48', '#3fe3ff'], 5: ['#2d3a4a', '#c9e6ff'], 6: ['#3a1440', '#ff3df2'],
+      7: ['#0f8fae', '#7df9ff'], 8: ['#b0249f', '#ff8af6'], glow: [7, 8],
+      strip: 0x3fe3ff, preview: ['#0d1a1f', '#3fe3ff', '#9fd6ff', '#ffb347', '#3fe3ff', '#c9e6ff', '#ff3df2', '#3fe3ff', '#ff8af6'],
+    },
+    build(set, m) {
+      const F = (x0, x1, z0, z1, hh, k) => { for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) set(x, z, hh, k); };
+      // helipad: glowing H on a low pad
+      F(14, 19, 4, 9, 0.1, 5); F(15, 15, 5, 8, 0.12, 7); F(18, 18, 5, 8, 0.12, 7); F(16, 17, 6, 7, 0.12, 7);
+      // weapon bench (west): table + glowing trim + lockers
+      F(6, 9, 18, 18, 1, 3); F(6, 9, 19, 19, 0.15, 7); F(2, 2, 14, 20, 2.6, 2); F(3, 3, 15, 15, 2.2, 6); F(3, 3, 19, 19, 2.2, 6);
+      // briefing tent / terminal (west-north)
+      F(3, 9, 24, 24, 2.4, 6); F(3, 3, 24, 29, 2.4, 6); F(5, 7, 27, 27, 1, 4); F(6, 6, 27, 27, 1.1, 8);
+      // firing range (east): walls with an entrance on the west side, shooting bench, targets at the far end
+      F(21, 31, 8, 8, 2.6, 2); F(21, 21, 8, 25, 2.6, 2); F(21, 21, 11, 13, 0, 0); F(21, 31, 25, 25, 2.6, 2);
+      F(23, 30, 13, 13, 0.9, 4); F(23, 30, 13, 13, 0.9, 4); F(25, 26, 13, 13, 0, 0); // shooting bench with a gap
+      F(22, 30, 23, 24, 0.4, 6); // target berm
+      // stream crossing the base + bridge
+      for (let x = 1; x <= 19; x++) if (x < 15 || x > 17) set(x, 30 + (x % 4 === 0 ? 1 : 0), 0.05, 7);
+      F(15, 17, 30, 31, 0.3, 5);
+      // vehicle bay (south-east): parked voxel truck
+      F(24, 29, 2, 4, 1.6, 6); F(27, 29, 2, 4, 2.2, 6); F(28, 28, 2, 4, 2.2, 7);
+      // crates + light posts
+      for (const [x, z, hh] of [[11, 12, 1], [12, 12, 0.5], [20, 18, 1], [11, 27, 1.2], [19, 27, 0.8], [5, 10, 1]]) set(x, z, hh, 3);
+      for (const [x, z] of [[12, 4], [21, 4], [12, 21], [19, 21]]) set(x, z, 3.2, 8);
+      // north wall with 5 portals (2-wide openings framed by glowing pillars)
+      F(1, 31, 37, 38, 3.6, 2);
+      for (const p of HQ_PORTALS) { set(p.x0 - 1, 36, 3.6, 8); set(p.x1 + 1, 36, 3.6, 8); F(p.x0, p.x1, 37, 37, 3.6, 7); }
+    },
+  },
+};
+
 export function createMap(id = DEFAULT_MAP) {
-  const def = MAPS[id] || MAPS[DEFAULT_MAP];
+  const def = MAPS[id] || HUBS[id] || MAPS[DEFAULT_MAP];
   const W = def.w, L = def.l;
   const heights = new Float32Array(W * L);
   const kind = new Uint8Array(W * L);
@@ -194,7 +240,7 @@ export function createMap(id = DEFAULT_MAP) {
   };
   def.build(set, { w: W, l: L }, h);
 
-  const m = { id: MAPS[id] ? id : DEFAULT_MAP, name: def.name, w: W, l: L, heights, kind, theme: def.theme || DEFAULT_THEME };
+  const m = { id: MAPS[id] || HUBS[id] ? id : DEFAULT_MAP, name: def.name, w: W, l: L, heights, kind, theme: def.theme || DEFAULT_THEME };
   m.heightAtCell = (i, j) => (i < 0 || j < 0 || i >= W || j >= L) ? WALL_H : heights[i + j * W];
   m.heightAt = (x, z) => m.heightAtCell(Math.floor(x), Math.floor(z));
   m.groundUnder = (x, z, r) => {

@@ -64,14 +64,20 @@
     </div>
   </header>
   <nav class="hm-nav" id="hm-nav">
-    <button data-sec="solo" class="sel">JUGAR SOLO</button>
+    <button data-sec="hq" class="sel hm-hq">HQ</button>
+    <button data-sec="solo">JUGAR SOLO</button>
     <button data-sec="online">ONLINE</button>
     <button data-sec="shop">TIENDA</button>
     <button data-sec="arms">ARMAS</button>
     <button data-sec="settings">AJUSTES</button>
   </nav>
   <section class="hm-panel">
-    <div class="hm-sec on" data-sec="solo">
+    <div class="hm-sec on" data-sec="hq">
+      <h3>HQ · BASE DE OPERACIONES</h3><p>Camina por la base en tercera persona: arma tu clase en la <b>armería</b>, prueba armas en el <b>campo de tiro</b> y entra a un <b>portal</b> para jugar Duelo por Equipos, Todos contra Todos, Dominación, Buscar y Destruir o Captura la Bandera (contra bots u online).</p>
+      <div id="hm-hq-level" class="hm-small"></div>
+      <div class="hm-row"><button class="hm-go" id="btn-hq">ENTRAR AL HQ ▶</button><button class="hm-go alt" id="btn-loadout">LOADOUT</button></div>
+    </div>
+    <div class="hm-sec" data-sec="solo">
       <h3>JUGAR SOLO</h3><p>Sobrevive oleadas de bots y gana monedas para la tienda.</p>
       <div class="hm-label">MAPA</div><div class="hm-maps"></div>
       <button class="hm-go" id="btn-play">INICIAR ▶</button>
@@ -159,6 +165,38 @@
     <div id="shop-list"></div>
   </div>
 </div>
+
+<!-- HQ hud -->
+<div id="hq-hud" class="hidden">
+  <div class="hq-title"><b>HQ</b> · BASE <span id="hq-lv"></span></div>
+  <div class="hq-right">
+    <div class="hq-toggle" id="hq-net"><button data-net="bots" class="sel">VS BOTS</button><button data-net="online">ONLINE</button></div>
+    <button class="pill" id="hq-loadout">LOADOUT</button>
+    <button class="pill" id="hq-exit">MENÚ</button>
+  </div>
+  <div id="hq-prompt" class="hidden"></div>
+  <button id="hq-act" class="tbtn hidden">E</button>
+  <div class="hq-help" id="hq-help"></div>
+</div>
+<div id="fade" class="hidden"><div id="fade-text"></div></div>
+
+<!-- Loadout (CoD-Mobile-style layout, original art) -->
+<div id="loadout" class="hidden">
+  <header class="lo-top">
+    <button class="lo-back" id="lo-back">‹ VOLVER</button>
+    <div class="lo-title">LOADOUT · <span id="lo-name">CLASE 1</span></div>
+    <div class="lo-cur"><span id="lo-lv"></span><span id="lo-coins"></span></div>
+  </header>
+  <nav class="lo-tabs" id="lo-tabs">
+    <button data-tab="mp" class="sel">MULTIJUGADOR</button>
+    <button data-tab="custom">PERSONALIZACIÓN</button>
+    <button data-tab="inv">INVENTARIO</button>
+  </nav>
+  <section class="lo-right" id="lo-right"></section>
+  <footer class="lo-bottom"><span class="lo-lbl">CLASES</span><div id="lo-slots"></div></footer>
+</div>
+<div id="xp-toast"></div>
+<div id="unlock-pop" class="hidden"><div class="up-t">¡DESBLOQUEADO!</div><img id="up-img" alt=""><div id="up-name"></div></div>
 
 <div id="rotate-hint">Gira el teléfono 📱↻ para jugar en horizontal</div>
 

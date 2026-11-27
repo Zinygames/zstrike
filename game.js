@@ -1,7 +1,8 @@
 // ZStrike - client (single-player vs bots + online deathmatch client)
 import * as THREE from 'three';
-import { WEAPONS, SHOP_ITEMS, CLUSTER, SERVER_URL, PUBLIC_SERVER_URL } from './config.js';
-import { MAPS, DEFAULT_MAP, createMap, rayHitPlayer } from './map.js';
+import { WEAPONS, SHOP_ITEMS, CLUSTER, SERVER_URL, PUBLIC_SERVER_URL, PERKS, STREAKS, MODES, DEFAULT_LOADOUT, CLASS_NAMES, weaponIndex } from './config.js';
+import { MAPS, DEFAULT_MAP, createMap, rayHitPlayer, HQ_PORTALS, HQ_BENCH, HQ_RANGE, HQ_SPAWN } from './map.js';
+import { weaponIcon } from './voxguns.js';
 import { flowField, flowDir } from './ai.js';
 import * as Wallet from './wallet.js';
 import { makeWeaponModel } from './weapons3d.js';
@@ -121,18 +122,26 @@ function buildWorld(id) {
 }
 
 // ---------------------------------------------------------------- avatars
-function makeAvatar(color, eyes = 0xff3df2) {
+// Blocky operator: helmet + glowing visor, vest, both arms forward holding a voxel weapon.
+function makeAvatar(color, eyes = 0xff3df2, weaponId = null) {
   const g = new THREE.Group();
-  const mat = new THREE.MeshLambertMaterial({ color }), dark = new THREE.MeshLambertMaterial({ color: 0x1a0a2e });
+  const mat = new THREE.MeshLambertMaterial({ color }), dark = new THREE.MeshLambertMaterial({ color: 0x1a1d24 });
+  const vest = new THREE.MeshLambertMaterial({ color: new THREE.Color(color).multiplyScalar(0.55) }), skin = new THREE.MeshLambertMaterial({ color: 0x2a2230 });
   const add = (w, h, d, x, y, z, m, name) => { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); b.position.set(x, y, z); if (name) b.name = name; g.add(b); return b; };
   add(0.22, 0.6, 0.22, -0.13, 0.3, 0, dark, 'legL'); add(0.22, 0.6, 0.22, 0.13, 0.3, 0, dark, 'legR');
-  add(0.56, 0.72, 0.3, 0, 0.98, 0, mat);
-  add(0.18, 0.6, 0.18, -0.38, 0.98, 0, mat); add(0.18, 0.6, 0.18, 0.38, 0.98, -0.15, mat);
-  add(0.46, 0.46, 0.46, 0, 1.6, 0, mat);
+  add(0.56, 0.72, 0.3, 0, 0.98, 0, mat); add(0.6, 0.38, 0.36, 0, 1.08, 0, vest);
+  add(0.16, 0.16, 0.46, 0.3, 1.2, -0.17, mat); add(0.16, 0.16, 0.5, -0.2, 1.2, -0.27, mat).rotation.y = -0.35;
+  add(0.42, 0.3, 0.42, 0, 1.5, 0, skin); add(0.48, 0.24, 0.48, 0, 1.72, 0.01, mat);
   const eyeM = new THREE.MeshBasicMaterial({ color: eyes });
-  add(0.1, 0.08, 0.02, -0.1, 1.64, -0.235, eyeM); add(0.1, 0.08, 0.02, 0.1, 1.64, -0.235, eyeM);
-  add(0.1, 0.1, 0.5, 0.38, 1.05, -0.45, dark);
+  add(0.38, 0.08, 0.03, 0, 1.58, -0.215, eyeM);
+  if (weaponId && WEAPONS.find((w) => w.id === weaponId)) {
+    const gun = makeWeaponModel(weaponId); gun.name = 'gun'; gun.position.set(0.12, 1.24, -0.42); g.add(gun);
+  } else add(0.1, 0.1, 0.5, 0.25, 1.22, -0.45, dark, 'gun');
   return g;
+}
+function setAvatarGun(av, weaponId) {
+  const old = av.getObjectByName('gun'); if (old) av.remove(old);
+  const gun = makeWeaponModel(weaponId); gun.name = 'gun'; gun.position.set(0.12, 1.24, -0.42); av.add(gun);
 }
 
 // ---------------------------------------------------------------- FX
@@ -161,6 +170,15 @@ function burst(p, color, n = 8, spd = 4) {
     fx.push({ obj: m, life: 0.5, max: 0.5, v: new THREE.Vector3((Math.random() - 0.5) * spd, Math.random() * spd, (Math.random() - 0.5) * spd) });
   }
 }
+// floating damage number (firing range)
+function dmgNumber(pos, dmg, head) {
+  const c = document.createElement('canvas'); c.width = 128; c.height = 64; const g = c.getContext('2d');
+  g.font = 'bold 44px sans-serif'; g.textAlign = 'center'; g.lineWidth = 6; g.strokeStyle = '#000'; g.fillStyle = head ? '#ffd84d' : '#fff';
+  g.strokeText(Math.round(dmg), 64, 46); g.fillText(Math.round(dmg), 64, 46);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthTest: false }));
+  sp.scale.set(0.8, 0.4, 1); sp.position.set(pos.x + (Math.random() - 0.5) * 0.4, pos.y + 2.1, pos.z); scene.add(sp);
+  fx.push({ obj: sp, life: 0.8, max: 0.8, v: new THREE.Vector3(0, 1.4, 0), noGrav: true });
+}
 function explosion(p) {
   const m = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), new THREE.MeshBasicMaterial({ color: 0xff3df2, transparent: true, opacity: 0.7 }));
   m.position.copy(p); scene.add(m); fx.push({ obj: m, life: 0.35, max: 0.35, grow: 3 });
@@ -178,7 +196,11 @@ function updateFx(dt) {
 
 // ---------------------------------------------------------------- viewmodel
 const viewGun = new THREE.Group();
-const gunModels = WEAPONS.map((w) => { const m = makeWeaponModel(w.id); m.visible = false; viewGun.add(m); return m; });
+const gunCache = {};
+function gunModel(i) {
+  if (!gunCache[i]) { const m = makeWeaponModel(WEAPONS[i].id); m.visible = false; viewGun.add(m); gunCache[i] = m; }
+  return gunCache[i];
+}
 const muzzle = new THREE.PointLight(0x46c8ff, 0, 3); viewGun.add(muzzle);
 // muzzle flash: additive glow sprite
 const flashTex = (() => {
@@ -191,7 +213,7 @@ flash.visible = false; viewGun.add(flash);
 let flashT = 0;
 viewGun.scale.setScalar(0.75); viewGun.position.set(0.2, -0.17, -0.42); camera.add(viewGun);
 function gunTipWorld() {
-  const m = gunModels[player.weapon]; camera.updateMatrixWorld(true);
+  const m = gunModel(player.weapon); camera.updateMatrixWorld(true);
   return m.userData.muzzle.clone().applyMatrix4(m.matrixWorld);
 }
 
@@ -202,16 +224,20 @@ let mode = 'menu';      // 'menu' | 'solo' | 'online'
 let paused = true;
 
 function availableWeapons() {
-  if (mode === 'online') return WEAPONS.map((_, i) => i); // equal loadout online (fair, server-checked)
-  const o = stats().owned; return WEAPONS.map((w, i) => (!w.unlock || o.has(w.unlock) ? i : -1)).filter((i) => i >= 0);
+  if (mode === 'online' && online.legacy) return [0, 1, 2]; // v1 lobbies (paid / free test): equal loadout, server-checked
+  const lo = curLoadout(), list = [weaponIndex(lo.primary), weaponIndex(lo.secondary)];
+  if (mode === 'solo') { // waves: loadout + every v1 shop weapon you own
+    const o = stats().owned; WEAPONS.forEach((w, i) => { if (w.legacy && (!w.unlock || o.has(w.unlock)) && !list.includes(i)) list.push(i); });
+  }
+  return list.filter((i) => i >= 0);
 }
 function switchWeapon(dir = 1, idx = null) {
   const av = availableWeapons();
   if (idx !== null) { if (av.includes(idx)) player.weapon = idx; }
   else { const k = av.indexOf(player.weapon); player.weapon = av[(k + dir + av.length) % av.length]; }
   const w = WEAPONS[player.weapon];
-  gunModels.forEach((m, i) => (m.visible = i === player.weapon));
-  const mz = gunModels[player.weapon].userData.muzzle;
+  Object.entries(gunCache).forEach(([i, m]) => (m.visible = +i === player.weapon));
+  const mz = gunModel(player.weapon).userData.muzzle; gunModel(player.weapon).visible = true;
   muzzle.color.setHex(w.color); muzzle.position.copy(mz); flash.position.copy(mz).add(new THREE.Vector3(0, 0, -0.03));
   flash.material.color.setHex(w.color); $('weapon-text').textContent = w.name + (av.length > 1 ? `  (${av.indexOf(player.weapon) + 1}/${av.length})` : '');
 }
@@ -224,6 +250,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyQ') switchWeapon(1);
   if (['Digit1', 'Digit2', 'Digit3'].includes(e.code)) switchWeapon(0, +e.code.slice(5) - 1);
   if (e.code === 'KeyB' && mode === 'solo') openShop();
+  if (e.code === 'KeyE' && mode === 'hq') hqInteract();
 });
 addEventListener('keyup', (e) => { input.keys[e.code] = false; });
 canvas.addEventListener('mousedown', () => {
@@ -302,7 +329,7 @@ function addKill(killer, wIdx, victim, { head = false, killerMe = false, victimM
 
 // ---------------------------------------------------------------- player physics
 const SPEED = 6, GRAVITY = 18, JUMP_V = 6.6, EYE = 1.55, PR = 0.3;
-function updatePlayer(dt) {
+function updatePlayer(dt, speedMult = 1) {
   let mx = input.mx, mz = input.mz;
   if (input.keys.KeyW || input.keys.ArrowUp) mz -= 1;
   if (input.keys.KeyS || input.keys.ArrowDown) mz += 1;
@@ -311,7 +338,8 @@ function updatePlayer(dt) {
   const len = Math.hypot(mx, mz); if (len > 1) { mx /= len; mz /= len; }
   const s = Math.sin(player.yaw), c = Math.cos(player.yaw);
   // forward = (-sin, -cos), right = (cos, -sin)
-  const dx = (mx * c + mz * s) * SPEED * dt, dz = (-mx * s + mz * c) * SPEED * dt;
+  const sp = SPEED * speedMult;
+  const dx = (mx * c + mz * s) * sp * dt, dz = (-mx * s + mz * c) * sp * dt;
   if (player.alive) map.moveCircle(player.pos, dx, dz, PR);
   if (input.jump && player.onGround && player.alive) { player.vy = JUMP_V; player.onGround = false; }
   input.jump = false;
@@ -374,7 +402,7 @@ function startSolo() {
   Object.assign(player, { hp: st.maxHp, maxHp: st.maxHp, armor: st.armor, alive: true, vy: 0, yaw: 0, pitch: 0, cd: 0 });
   const sp = map.spawns[0][2] || map.spawns[0][0]; player.pos.set(sp[0], 0, sp[1]);
   player.yaw = Math.PI; // face north (+z) toward the far end
-  player.weapon = 0; switchWeapon(0, 0);
+  player.weapon = availableWeapons()[0]; switchWeapon(0, player.weapon);
   wave = 0; score = 0; waveTimer = 1.5; botSeq = 0; $('killfeed').innerHTML = '';
   $('mp-timer').classList.add('hidden'); $('scoreboard').classList.add('hidden'); $('btn-shop').classList.remove('hidden');
   showGame();
@@ -396,11 +424,17 @@ function spawnWave() {
   }
 }
 function damageEnemy(e, dmg, head, wIdx = player.weapon) {
+  if (e.dummy) { // HQ firing range target
+    if (!e.mesh.visible) return;
+    e.hp -= dmg; hitMarker(); dmgNumber(e.pos, dmg, head);
+    if (e.hp <= 0) { e.mesh.visible = false; e.respawnAt = performance.now() + 1500; burst(e.pos.clone().setY(1), 0xff8a1a, 14, 6); }
+    return;
+  }
   e.hp -= dmg; hitMarker();
   if (e.hp <= 0 && enemies.includes(e)) {
     burst(e.pos.clone().setY(1), 0x14f195, 14, 6); scene.remove(e.mesh); enemies.splice(enemies.indexOf(e), 1);
     const c = 10 + wave * 2 + (head ? 5 : 0); coins += c; LS.set('coins', coins);
-    score += head ? 150 : 100; addKill(playerName(), wIdx, e.name, { head, killerMe: true });
+    score += head ? 150 : 100; addKill(playerName(), wIdx, e.name, { head, killerMe: true }); addXp(head ? 150 : 100, head ? 'HEADSHOT' : 'KILL');
   }
 }
 function updateBots(dt) {
@@ -739,9 +773,283 @@ $('btn-connect').onclick = async () => { try { await Wallet.connect(); shopMsg('
 $('btn-disconnect').onclick = async () => { await Wallet.disconnect(); renderShop(); };
 Wallet.onWalletChange(() => { if (!$('shop').classList.contains('hidden')) renderShop(); refreshOnlineWallet(); });
 
+// ---------------------------------------------------------------- v2: progression (XP / levels / unlocks)
+const XP_PER_LVL = 600, MAX_LVL = 50;
+let xp = LS.get('xp', 0);
+function level() { return Math.min(MAX_LVL, 1 + Math.floor(xp / XP_PER_LVL)); }
+function lvlProgress() { return level() >= MAX_LVL ? 1 : (xp % XP_PER_LVL) / XP_PER_LVL; }
+function isUnlocked(w) { return w.legacy ? (!w.unlock || stats().owned.has(w.unlock)) : (w.lvl || 1) <= level(); }
+function addXp(n, why = '') {
+  if (!n) return; const before = level(); xp += n; LS.set('xp', xp);
+  xpToast(`+${n} XP${why ? ' · ' + why : ''}`);
+  const after = level();
+  if (after > before) {
+    banner('¡NIVEL ' + after + '!', 2.5);
+    WEAPONS.filter((w) => !w.legacy && w.lvl > before && w.lvl <= after).forEach((w, k) => setTimeout(() => showUnlocked(w), 600 + k * 2600));
+  }
+}
+let xpToastT = null;
+function xpToast(t) {
+  const el = $('xp-toast'); if (!el) return; el.textContent = t; el.classList.add('on');
+  clearTimeout(xpToastT); xpToastT = setTimeout(() => el.classList.remove('on'), 1400);
+}
+const unlockQueue = []; let unlockBusy = false;
+function showUnlocked(w) { unlockQueue.push(w); if (!unlockBusy) nextUnlock(); }
+function nextUnlock() {
+  const w = unlockQueue.shift(); if (!w) { unlockBusy = false; return; } unlockBusy = true;
+  $('up-img').src = weaponIcon(w, 192, 80); $('up-name').textContent = w.name.toUpperCase() + ' · ' + CLASS_NAMES[w.cls];
+  const el = $('unlock-pop'); el.classList.remove('hidden'); el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
+  setTimeout(() => { el.classList.add('hidden'); nextUnlock(); }, 2400);
+}
+function iconFor(w) { return w.style ? weaponIcon(w) : 'data:image/svg+xml,' + encodeURIComponent(WEAPON_ICONS[w.id].replace('currentColor', '#' + w.color.toString(16).padStart(6, '0')).replace(/currentColor/g, '#' + w.color.toString(16).padStart(6, '0')).replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ')); }
+
+// ---------------------------------------------------------------- v2: loadouts (5 slots, saved in localStorage)
+const SKINS = [0x3fe3ff, 0x14f195, 0xff3df2, 0xffb347, 0x9945ff, 0xff4a3d, 0xf4f4f4, 0x6e8f3a];
+let loadouts = LS.get('loadouts', null);
+if (!Array.isArray(loadouts) || loadouts.length !== 5) loadouts = [1, 2, 3, 4, 5].map((n) => ({ name: 'CLASE ' + n, ...DEFAULT_LOADOUT, perks: [...DEFAULT_LOADOUT.perks] }));
+let loSel = Math.max(0, Math.min(4, LS.get('loadoutSel', 0)));
+function saveLoadouts() { LS.set('loadouts', loadouts); LS.set('loadoutSel', loSel); }
+function curLoadout() {
+  const lo = loadouts[loSel];
+  const ok = (id, slot) => { const w = WEAPONS.find((x) => x.id === id); return w && w.slot === slot && isUnlocked(w); };
+  if (!ok(lo.primary, 'primary')) lo.primary = DEFAULT_LOADOUT.primary;
+  if (!ok(lo.secondary, 'secondary')) lo.secondary = DEFAULT_LOADOUT.secondary;
+  if (!Array.isArray(lo.perks) || lo.perks.length !== 3) lo.perks = [...DEFAULT_LOADOUT.perks];
+  lo.perks = lo.perks.map((id, i) => (PERKS[i + 1].some((p) => p.id === id) ? id : DEFAULT_LOADOUT.perks[i]));
+  return lo;
+}
+const skinColor = () => SKINS[LS.get('skin', 0)] ?? SKINS[0];
+
+// 3D stage for the loadout screen (far away from the arena, like the weapon showcase)
+const stage = new THREE.Group(); stage.visible = false; scene.add(stage);
+const STAGE_POS = new THREE.Vector3(0, -80, 0); stage.position.copy(STAGE_POS);
+{
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(1.3, 1.3, 0.06, 40), new THREE.MeshPhongMaterial({ color: 0x0a1622, emissive: 0x04121c }));
+  disc.position.y = -0.03; stage.add(disc);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(1.3, 0.015, 6, 64), new THREE.MeshBasicMaterial({ color: 0x3fe3ff })); ring.rotation.x = Math.PI / 2; stage.add(ring);
+  for (let i = 0; i < 14; i++) { // backdrop: neon blocks
+    const b = new THREE.Mesh(new THREE.BoxGeometry(1, 1 + (i * 7) % 5, 1), new THREE.MeshLambertMaterial({ color: i % 3 ? 0x14232b : 0x203a48 }));
+    b.position.set(-7 + i, b.geometry.parameters.height / 2 - 0.5, 4 + (i % 2)); stage.add(b);
+  }
+  const key = new THREE.PointLight(0x3fe3ff, 8, 8); key.position.set(-1.5, 2.2, -2); stage.add(key);
+  const fill = new THREE.PointLight(0xff3df2, 5, 8); fill.position.set(2, 1.5, 1); stage.add(fill);
+}
+let stageAvatar = null, stageSpin = 0, stageWeapon = null;
+function refreshStage(previewId) {
+  const wid = previewId || curLoadout().primary;
+  if (stageAvatar && stageWeapon === wid && stageAvatar.userData.skin === skinColor()) return;
+  if (stageAvatar) stage.remove(stageAvatar);
+  stageAvatar = makeAvatar(skinColor(), 0x3fe3ff, wid); stageAvatar.userData.skin = skinColor(); stageWeapon = wid;
+  stageAvatar.scale.setScalar(1.15); stage.add(stageAvatar);
+}
+
+let loadoutOpen = false, loTab = 'mp', loPick = null, loPickCls = null, loReturn = null;
+function openLoadout(ret) {
+  loadoutOpen = true; loReturn = ret || (mode === 'hq' ? 'hq' : 'menu'); loPick = null; loTab = 'mp';
+  paused = true; document.exitPointerLock?.(); input.mx = input.mz = 0;
+  ['menu', 'hq-hud', 'touch', 'hud'].forEach((id) => $(id).classList.add('hidden'));
+  $('loadout').classList.remove('hidden'); stage.visible = true; viewGun.visible = false; if (hqAvatar) hqAvatar.visible = false; refreshStage(); renderLoadout();
+}
+function closeLoadout() {
+  loadoutOpen = false; stage.visible = false; saveLoadouts(); $('loadout').classList.add('hidden');
+  if (loReturn === 'hq' && mode === 'hq') { hqResume(); }
+  else { viewGun.visible = true; $('menu').classList.remove('hidden'); selectSection(menuSec); }
+}
+function statBars(w) {
+  const pct = (v) => Math.round(Math.max(0.05, Math.min(1, v)) * 100);
+  const dps = w.damage / w.fireRate;
+  return `<span>DAÑO</span><i><b style="width:${pct(w.damage / 140)}%"></b></i><span>CADENCIA</span><i><b style="width:${pct(dps / 260)}%"></b></i>` +
+    `<span>ALCANCE</span><i><b style="width:${pct(w.range / 150)}%"></b></i><span>CARGADOR</span><i><b style="width:${pct(w.mag ? w.mag / 100 : 1)}%"></b></i>`;
+}
+function renderLoadout() {
+  const lo = curLoadout(), R = $('lo-right');
+  $('lo-name').textContent = lo.name; $('lo-lv').textContent = 'NV ' + level(); $('lo-coins').textContent = '🪙 ' + coins;
+  document.querySelectorAll('#lo-tabs button').forEach((b) => b.classList.toggle('sel', b.dataset.tab === loTab));
+  $('lo-slots').innerHTML = loadouts.map((_, i) => `<button data-i="${i}" class="${i === loSel ? 'sel' : ''}">${i + 1}</button>`).join('');
+  $('lo-slots').querySelectorAll('button').forEach((b) => (b.onclick = () => { loSel = +b.dataset.i; loPick = null; saveLoadouts(); refreshStage(); renderLoadout(); }));
+  if (loTab === 'custom') {
+    R.innerHTML = `<div class="lo-sub">OPERADOR · COLOR</div><div class="lo-skins">${SKINS.map((c, i) => `<button data-i="${i}" class="${LS.get('skin', 0) === i ? 'sel' : ''}" style="background:#${c.toString(16).padStart(6, '0')}"></button>`).join('')}</div>
+      <div class="lo-sub">NOMBRE</div><div class="hm-small">${esc(playerName())} (cámbialo en AJUSTES)</div>`;
+    R.querySelectorAll('.lo-skins button').forEach((b) => (b.onclick = () => { LS.set('skin', +b.dataset.i); refreshStage(); renderLoadout(); if (hqAvatar) { scene.remove(hqAvatar); hqAvatar = null; } }));
+    return;
+  }
+  if (loTab === 'inv') {
+    R.innerHTML = `<div class="lo-sub">NIVEL ${level()} · ${xp} XP</div><div class="lo-xp"><i style="width:${Math.round(lvlProgress() * 100)}%"></i></div>
+      <div class="lo-inv">${WEAPONS.map((w) => `<div class="${isUnlocked(w) ? '' : 'locked'}"><img src="${iconFor(w)}"><br>${esc(w.name.toUpperCase())}<br><small>${isUnlocked(w) ? CLASS_NAMES[w.cls] : (w.legacy ? 'TIENDA' : 'NIVEL ' + w.lvl)}</small></div>`).join('')}</div>`;
+    return;
+  }
+  if (loPick === 'primary' || loPick === 'secondary') {
+    const slot = loPick, classes = [...new Set(WEAPONS.filter((w) => w.slot === slot).map((w) => w.cls))];
+    if (!classes.includes(loPickCls)) loPickCls = WEAPONS.find((w) => w.id === lo[slot]).cls;
+    const list = WEAPONS.filter((w) => w.slot === slot && w.cls === loPickCls && (!w.legacy || isUnlocked(w)));
+    R.innerHTML = `<div class="lo-pick-head"><button id="lo-pback">‹</button>${classes.map((c) => `<button data-c="${c}" class="${c === loPickCls ? 'sel' : ''}">${CLASS_NAMES[c]}</button>`).join('')}</div>` +
+      list.map((w) => `<button class="lo-wrow ${w.id === lo[slot] ? 'sel' : ''} ${isUnlocked(w) ? '' : 'locked'}" data-id="${w.id}"><img src="${iconFor(w)}"><span class="nm">${esc(w.name.toUpperCase())}<small>${isUnlocked(w) ? (w.mag ? w.mag + ' BALAS' : '∞') : 'NIVEL ' + w.lvl}</small></span><span class="sts">${statBars(w)}</span></button>`).join('');
+    $('lo-pback').onclick = () => { loPick = null; refreshStage(); renderLoadout(); };
+    R.querySelectorAll('.lo-pick-head button[data-c]').forEach((b) => (b.onclick = () => { loPickCls = b.dataset.c; renderLoadout(); }));
+    R.querySelectorAll('.lo-wrow').forEach((b) => (b.onclick = () => {
+      const w = WEAPONS.find((x) => x.id === b.dataset.id); refreshStage(w.id);
+      if (!isUnlocked(w)) { loToast(`Se desbloquea en el nivel ${w.lvl}`); return; }
+      lo[slot] = w.id; saveLoadouts(); renderLoadout();
+    }));
+    return;
+  }
+  if (loPick && loPick.startsWith('perk')) {
+    const k = +loPick.slice(4);
+    R.innerHTML = `<div class="lo-pick-head"><button id="lo-pback">‹</button><span class="lo-sub">PERK ${k}</span></div>` +
+      PERKS[k].map((p) => `<button class="lo-perk ${lo.perks[k - 1] === p.id ? 'sel' : ''}" data-id="${p.id}"><span class="lo-icon p${k}"><i>${p.icon}</i></span><span><b>${p.name.toUpperCase()}</b><span>${p.desc}</span></span></button>`).join('');
+    $('lo-pback').onclick = () => { loPick = null; renderLoadout(); };
+    R.querySelectorAll('.lo-perk').forEach((b) => (b.onclick = () => { lo.perks[k - 1] = b.dataset.id; saveLoadouts(); loPick = null; renderLoadout(); }));
+    return;
+  }
+  const P = WEAPONS.find((w) => w.id === lo.primary), S = WEAPONS.find((w) => w.id === lo.secondary);
+  const perk = (k) => PERKS[k].find((p) => p.id === lo.perks[k - 1]);
+  R.innerHTML = `<div class="lo-grid">
+      <button class="lo-card" id="lo-p"><div class="lbl">PRINCIPAL · ${CLASS_NAMES[P.cls]}</div><div class="nm">${esc(P.name.toUpperCase())}</div><img src="${iconFor(P)}"><span class="gs">ARMERO ›</span></button>
+      <button class="lo-card" id="lo-s"><div class="lbl">SECUNDARIA · ${CLASS_NAMES[S.cls]}</div><div class="nm">${esc(S.name.toUpperCase())}</div><img src="${iconFor(S)}"><span class="gs">ARMERO ›</span></button>
+    </div>
+    <div class="lo-sub">LETAL · TÁCTICO</div>
+    <div class="lo-row3"><div class="lo-icon eq"><i>●</i>GRANADA${lo.perks[1] === 'bolsillo' ? ' ×2' : ''}</div><div class="lo-icon eq"><i>✺</i>CEGADORA</div><div class="lo-icon eq"><i>⚑</i>${IS_TOUCH ? 'BOTÓN 💣' : 'TECLAS G / F'}</div></div>
+    <div class="lo-sub">RACHAS (KILLS SIN MORIR)</div>
+    <div class="lo-row3">${STREAKS.map((k) => `<div class="lo-icon st"><i>${{ uav: '◉', air: '✈', heli: '🚁' }[k.id]}</i>${k.name} <b>${k.kills}</b></div>`).join('')}</div>
+    <div class="lo-sub">PERKS</div>
+    <div class="lo-row3">${[1, 2, 3].map((k) => `<button class="lo-icon p${k}" data-perk="${k}"><i>${perk(k).icon}</i>${perk(k).name.toUpperCase()}</button>`).join('')}</div>`;
+  $('lo-p').onclick = () => { loPick = 'primary'; loPickCls = null; renderLoadout(); };
+  $('lo-s').onclick = () => { loPick = 'secondary'; loPickCls = null; renderLoadout(); };
+  R.querySelectorAll('[data-perk]').forEach((b) => (b.onclick = () => { loPick = 'perk' + b.dataset.perk; renderLoadout(); }));
+  refreshStage();
+}
+function loToast(t) { xpToast(t); }
+$('lo-back').onclick = closeLoadout;
+document.querySelectorAll('#lo-tabs button').forEach((b) => (b.onclick = () => { loTab = b.dataset.tab; loPick = null; renderLoadout(); }));
+
+// ---------------------------------------------------------------- v2: HQ (third-person hub)
+let hqAvatar = null, hqNear = null, hqInRange = false, hqFading = false, hqPortalMeshes = [], netMode = LS.get('net', 'bots');
+function makeLabel(text, color = '#3fe3ff', w = 256) {
+  const c = document.createElement('canvas'); c.width = w; c.height = 64; const g = c.getContext('2d');
+  g.fillStyle = 'rgba(4,10,18,.75)'; g.fillRect(0, 8, w, 48); g.fillStyle = color; g.fillRect(0, 8, 4, 48);
+  g.font = 'bold 26px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#fff'; g.fillText(text, w / 2, 33);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthWrite: false })); sp.scale.set(w / 64 * 0.8, 0.8, 1); return sp;
+}
+function buildHQDeco() {
+  hqPortalMeshes = [];
+  for (const p of HQ_PORTALS) {
+    const M = MODES[p.mode];
+    const surf = new THREE.Mesh(new THREE.PlaneGeometry(2, 3.4), new THREE.MeshBasicMaterial({ color: M.color, transparent: true, opacity: 0.55, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }));
+    surf.position.set(p.x0 + 1, 1.7, p.z + 0.55); worldGroup.add(surf);
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(4, 0.3, 1), new THREE.MeshBasicMaterial({ color: M.color })); beam.position.set(p.x0 + 1, 3.75, p.z + 0.5); worldGroup.add(beam);
+    const lbl = makeLabel(M.short + ' · ' + M.name, '#' + M.color.toString(16).padStart(6, '0'), 420); lbl.position.set(p.x0 + 1, 4.5, p.z + 0.2); worldGroup.add(lbl);
+    hqPortalMeshes.push(surf);
+  }
+  const lb = makeLabel('ARMERÍA · LOADOUT', '#ffb347', 320); lb.position.set(HQ_BENCH.x, 2.6, HQ_BENCH.z + 2); worldGroup.add(lb);
+  const lr = makeLabel('CAMPO DE TIRO', '#ff3df2', 300); lr.position.set(21.5, 3.3, 12); worldGroup.add(lr);
+  const lh = makeLabel('HELIPUERTO', '#3fe3ff', 260); lh.position.set(16.5, 2.4, 10); worldGroup.add(lh);
+  // weapon on the bench (your current primary), slowly turning
+  const g = makeWeaponModel(curLoadout().primary); g.scale.setScalar(1.6); g.position.set(7.5, 1.35, 18.5); g.name = 'bench-gun'; worldGroup.add(g);
+  // range targets (dummies): stand on the berm
+  enemies.forEach((e) => scene.remove(e.mesh)); enemies = [];
+  for (const [x, z] of [[23.5, 22.5], [25.5, 22.5], [27.5, 22.5], [29.5, 22.5], [24.5, 19.5], [28.5, 17.5]]) spawnDummy(x, z);
+}
+function spawnDummy(x, z) {
+  const mesh = makeAvatar(0xff8a1a, 0xffffff); mesh.position.set(x, map.groundUnder(x, z, 0.3), z); mesh.rotation.y = Math.PI; scene.add(mesh);
+  enemies.push({ name: 'Blanco', mesh, pos: mesh.position, hp: 150, maxHp: 150, dummy: true, home: [x, z], speed: 0, cd: 1e9, walk: 0 });
+}
+function enterHQ() {
+  if (loadoutOpen) { loadoutOpen = false; stage.visible = false; $('loadout').classList.add('hidden'); }
+  mode = 'hq'; clearSolo(); online.clearRemotes(); hqFading = false;
+  ['menu', 'gameover', 'shop', 'online', 'fade'].forEach((id) => $(id).classList.add('hidden'));
+  buildWorld('hq'); buildHQDeco();
+  Object.assign(player, { hp: 100, maxHp: 100, armor: 0, alive: true, vy: 0, yaw: Math.PI, pitch: -0.15, cd: 0 });
+  player.pos.set(HQ_SPAWN.x, map.groundUnder(HQ_SPAWN.x, HQ_SPAWN.z, 0.3), HQ_SPAWN.z);
+  hqResume(); $('killfeed').innerHTML = '';
+  $('hq-help').textContent = IS_TOUCH ? 'Joystick: caminar · arrastra: mirar · entra a un portal para jugar' : 'WASD caminar · ratón mirar (clic para capturar) · E interactuar · entra a un portal para jugar';
+  $('hq-lv').textContent = 'NV ' + level();
+}
+function hqResume() {
+  if (!hqAvatar || hqAvatar.userData.skin !== skinColor()) {
+    if (hqAvatar) scene.remove(hqAvatar);
+    hqAvatar = makeAvatar(skinColor(), 0x3fe3ff, curLoadout().primary); hqAvatar.userData.skin = skinColor(); scene.add(hqAvatar);
+  } else setAvatarGun(hqAvatar, curLoadout().primary);
+  hqAvatar.visible = true;
+  const bg = worldGroup.getObjectByName('bench-gun'); if (bg) { const np = makeWeaponModel(curLoadout().primary); np.scale.setScalar(1.6); np.position.copy(bg.position); np.name = 'bench-gun'; worldGroup.remove(bg); worldGroup.add(np); }
+  player.weapon = availableWeapons()[0]; switchWeapon(0, player.weapon);
+  $('hq-hud').classList.remove('hidden'); $('touch').classList.toggle('hidden', !IS_TOUCH);
+  setNet(netMode); paused = false; hqInRange = false; applyRangeUI();
+}
+function setNet(n) { netMode = n; LS.set('net', n); document.querySelectorAll('#hq-net button').forEach((b) => b.classList.toggle('sel', b.dataset.net === n)); }
+document.querySelectorAll('#hq-net button').forEach((b) => (b.onclick = () => setNet(b.dataset.net)));
+$('hq-loadout').onclick = () => openLoadout('hq');
+$('hq-exit').onclick = () => { if (hqAvatar) hqAvatar.visible = false; $('hq-hud').classList.add('hidden'); goMenu('hq'); };
+function applyRangeUI() {
+  $('hud').classList.toggle('hidden', !hqInRange);
+  ['btn-fire', 'btn-switch'].forEach((id) => $(id).classList.toggle('hidden', !hqInRange));
+  viewGun.visible = hqInRange; if (hqAvatar) hqAvatar.visible = !hqInRange;
+  document.querySelector('.hq-title').classList.toggle('hidden', hqInRange); $('hq-help').classList.toggle('hidden', hqInRange);
+  if (hqInRange) { $('wave-text').textContent = 'CAMPO DE TIRO'; $('btn-shop').classList.add('hidden'); $('mp-timer').classList.add('hidden'); $('scoreboard').classList.add('hidden'); }
+}
+function hqInteract() { if (hqNear === 'bench') openLoadout('hq'); }
+$('hq-act').addEventListener('pointerdown', (e) => { hqInteract(); e.preventDefault(); });
+function showFade(text) { $('fade-text').textContent = text; $('fade').classList.remove('hidden'); }
+function hideFade() { $('fade').classList.add('hidden'); }
+function launchPortal(m) {
+  if (hqFading) return; hqFading = true; input.fire = false;
+  showFade('ENTRANDO A ' + MODES[m].name + '…');
+  setTimeout(() => { if (hqAvatar) hqAvatar.visible = false; $('hq-hud').classList.add('hidden'); startMode(m, netMode); setTimeout(hideFade, 150); }, 1300);
+}
+const _tpv = new THREE.Vector3();
+function updateHQ(dt) {
+  const r = HQ_RANGE, inR = player.pos.x > r.x0 + 0.6 && player.pos.x < r.x1 + 0.4 && player.pos.z > r.z0 + 0.6 && player.pos.z < r.z1 - 0.2;
+  if (inR !== hqInRange) { hqInRange = inR; applyRangeUI(); if (inR) banner('CAMPO DE TIRO', 1.2); }
+  if (!hqInRange) input.fire = false;
+  updatePlayer(dt, hqInRange ? 1 : 0.85);
+  if (hqInRange) { tryFire(dt); updateProjectiles(dt); }
+  // dummies come back after being knocked down
+  for (const e of enemies) if (e.dummy && e.respawnAt && performance.now() > e.respawnAt) { e.respawnAt = 0; e.hp = e.maxHp; e.mesh.visible = true; }
+  // third-person camera (over the right shoulder), pulled in when a wall is behind you
+  if (!hqInRange && hqAvatar) {
+    const sy = Math.sin(player.yaw), cy = Math.cos(player.yaw), pitch = Math.max(-0.7, Math.min(0.55, player.pitch));
+    hqAvatar.position.copy(player.pos); hqAvatar.rotation.y = player.yaw;
+    const moving = Math.hypot(input.mx, input.mz) > 0.1 || ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].some((k) => input.keys[k]);
+    hqAvatar.userData.walk = (hqAvatar.userData.walk || 0) + (moving ? dt * 11 : 0);
+    const sw = moving ? Math.sin(hqAvatar.userData.walk) * 0.6 : 0;
+    hqAvatar.getObjectByName('legL').rotation.x = sw; hqAvatar.getObjectByName('legR').rotation.x = -sw;
+    const head = new THREE.Vector3(player.pos.x, player.pos.y + 1.65, player.pos.z);
+    const right = new THREE.Vector3(cy, 0, -sy);
+    const back = new THREE.Vector3(sy * Math.cos(pitch), -Math.sin(pitch), cy * Math.cos(pitch));
+    const want = back.clone().multiplyScalar(3.3).addScaledVector(right, 0.65).add(new THREE.Vector3(0, 0.35, 0));
+    const len = want.length(), dir = want.clone().normalize();
+    const d = Math.max(0.6, Math.min(len, map.rayWallDistance(head, dir, len + 0.3) - 0.25));
+    camera.position.copy(head).addScaledVector(dir, d);
+    _tpv.set(-sy * Math.cos(pitch), Math.sin(pitch), -cy * Math.cos(pitch)).multiplyScalar(8).add(head).addScaledVector(right, 0.65);
+    camera.lookAt(_tpv);
+  }
+  // interactables
+  let near = null, prompt = '';
+  if (Math.hypot(player.pos.x - HQ_BENCH.x, player.pos.z - HQ_BENCH.z) < HQ_BENCH.r) { near = 'bench'; prompt = `ARMERÍA · LOADOUT<small>${IS_TOUCH ? 'toca E' : 'pulsa E'} para editar tu clase</small>`; }
+  for (const p of HQ_PORTALS) {
+    const inX = player.pos.x > p.x0 - 0.2 && player.pos.x < p.x1 + 1.2;
+    if (inX && player.pos.z > p.z - 4 && !near) { near = 'portal'; prompt = `${MODES[p.mode].name} · ${netMode === 'online' ? 'ONLINE' : 'VS BOTS'}<small>${MODES[p.mode].desc}</small>`; }
+    if (inX && player.pos.z > p.z - 0.15) launchPortal(p.mode);
+  }
+  if (!near && hqInRange) prompt = 'Dispara a los blancos<small>prueba tu loadout · ' + (IS_TOUCH ? '⇄ cambia de arma' : 'Q / 1-2 cambia de arma') + '</small>';
+  hqNear = near;
+  $('hq-prompt').innerHTML = prompt; $('hq-prompt').classList.toggle('hidden', !prompt);
+  $('hq-act').classList.toggle('hidden', !(IS_TOUCH && near === 'bench'));
+  const t = performance.now() / 1000;
+  hqPortalMeshes.forEach((m, i) => (m.material.opacity = 0.4 + Math.sin(t * 3 + i) * 0.15));
+  const bg = worldGroup.getObjectByName('bench-gun'); if (bg) bg.rotation.y = t * 0.8;
+}
+
+// Game modes launched from the HQ portals.
+function startMode(m, net) {
+  if (m === 'tdm' || m === 'ffa') { if (net === 'online') openOnline(); else startSolo(); return; }
+  enterHQ(); banner(MODES[m].name + ': ¡PRÓXIMAMENTE!', 2.5);
+}
+
 // ---------------------------------------------------------------- menus / flow
 function showGame() {
-  ['menu', 'gameover', 'shop', 'online'].forEach((id) => $(id).classList.add('hidden'));
+  ['menu', 'gameover', 'shop', 'online', 'hq-hud'].forEach((id) => $(id).classList.add('hidden'));
+  if (hqAvatar) hqAvatar.visible = false; viewGun.visible = true; ['btn-fire', 'btn-switch'].forEach((id) => $(id).classList.remove('hidden'));
   $('hud').classList.remove('hidden'); $('touch').classList.toggle('hidden', !IS_TOUCH);
   paused = false; $('respawn-text').textContent = '';
   showcase.visible = false;
@@ -750,7 +1058,8 @@ function showGame() {
 function goMenu(sec) {
   mode = 'menu'; paused = true; document.exitPointerLock?.();
   clearSolo(); online.clearRemotes(); $('killfeed').innerHTML = '';
-  ['gameover', 'shop', 'online', 'hud', 'touch'].forEach((id) => $(id).classList.add('hidden'));
+  ['gameover', 'shop', 'online', 'hud', 'touch', 'hq-hud', 'fade'].forEach((id) => $(id).classList.add('hidden'));
+  if (hqAvatar) hqAvatar.visible = false; viewGun.visible = true; ['btn-fire', 'btn-switch'].forEach((id) => $(id).classList.remove('hidden'));
   buildWorld(mapId); $('menu').classList.remove('hidden');
   selectSection(sec || menuSec);
 }
@@ -801,7 +1110,16 @@ const showcase = new THREE.Group(); showcase.visible = false; scene.add(showcase
 const SHOW_POS = new THREE.Vector3(0, 60, 0);
 showcase.position.copy(SHOW_POS);
 const SHOW_SCALE = { pistol: 5.4, smg: 3.1, rocket: 2.8 };
-const showModels = WEAPONS.map((w) => { const m = makeWeaponModel(w.id); m.scale.setScalar(SHOW_SCALE[w.id] || 2.4); m.visible = false; showcase.add(m); return m; });
+const showModels = {};
+function showModel(i) {
+  if (!showModels[i]) {
+    const w = WEAPONS[i], m = makeWeaponModel(w.id);
+    let sc = SHOW_SCALE[w.id];
+    if (!sc) { const bb = new THREE.Box3().setFromObject(m), sz = bb.getSize(new THREE.Vector3()); sc = 1.9 / Math.max(sz.z, 0.2); }
+    m.scale.setScalar(sc); m.visible = false; showcase.add(m); showModels[i] = m;
+  }
+  return showModels[i];
+}
 const showKey = new THREE.PointLight(0x3fe3ff, 6, 6); showKey.position.set(SHOW_POS.x - 1, SHOW_POS.y + 0.8, SHOW_POS.z + 1.2); scene.add(showKey);
 const showRim = new THREE.PointLight(0xffffff, 4, 6); showRim.position.set(SHOW_POS.x + 1.5, SHOW_POS.y + 0.5, SHOW_POS.z - 1); scene.add(showRim);
 const showFloor = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, 0.03, 40), new THREE.MeshPhongMaterial({ color: 0x0a1622, emissive: 0x04121c, shininess: 80 }));
@@ -809,10 +1127,10 @@ showFloor.position.set(0, -0.62, 0); showcase.add(showFloor);
 const showRing = new THREE.Mesh(new THREE.TorusGeometry(1.1, 0.012, 6, 64), new THREE.MeshBasicMaterial({ color: 0x3fe3ff }));
 showRing.rotation.x = Math.PI / 2; showRing.position.set(0, -0.6, 0); showcase.add(showRing);
 let showWeapon = 0;
-function setShowWeapon(i) { showWeapon = i; showModels.forEach((m, k) => (m.visible = k === i)); }
+function setShowWeapon(i) { showWeapon = i; Object.entries(showModels).forEach(([k, m]) => (m.visible = +k === i)); showModel(i).visible = true; }
 setShowWeapon(0);
 
-let menuSec = 'solo';
+let menuSec = 'hq';
 function selectSection(sec) {
   menuSec = sec;
   document.querySelectorAll('#hm-nav button').forEach((b) => b.classList.toggle('sel', b.dataset.sec === sec));
@@ -823,26 +1141,27 @@ function selectSection(sec) {
     const o = stats().owned;
     $('hm-shop-summary').textContent = `🪙 ${coins} monedas · ${SHOP_ITEMS.filter((i) => o.has(i.id)).length}/${SHOP_ITEMS.length} artículos desbloqueados`;
   }
+  if (sec === 'hq') $('hm-hq-level').innerHTML = `NIVEL <b>${level()}</b> · ${xp} XP · clase: <b>${esc(curLoadout().name)}</b> (${esc(WEAPONS.find((w) => w.id === curLoadout().primary).name)} + ${esc(WEAPONS.find((w) => w.id === curLoadout().secondary).name)})`;
   if (sec === 'settings') { $('set-name').value = cleanName(LS.get('name', '')); $('set-name').placeholder = defaultName(); }
 }
 document.querySelectorAll('#hm-nav button').forEach((b) => (b.onclick = () => selectSection(b.dataset.sec)));
 addEventListener('keydown', (e) => {
   if ($('menu').classList.contains('hidden') || e.target.tagName === 'INPUT') return;
-  const order = ['solo', 'online', 'shop', 'arms', 'settings']; const i = order.indexOf(menuSec);
+  const order = ['hq', 'solo', 'online', 'shop', 'arms', 'settings']; const i = order.indexOf(menuSec);
   if (e.code === 'ArrowDown') selectSection(order[(i + 1) % order.length]);
   if (e.code === 'ArrowUp') selectSection(order[(i + order.length - 1) % order.length]);
-  if (e.code === 'Enter') ({ solo: startSolo, online: openOnline, shop: openShop })[menuSec]?.();
+  if (e.code === 'Enter') ({ hq: enterHQ, solo: startSolo, online: openOnline, shop: openShop })[menuSec]?.();
 });
 function renderArms() {
   const o = stats().owned, maxDps = Math.max(...WEAPONS.map((w) => w.damage / w.fireRate));
   $('hm-arms').innerHTML = '';
   WEAPONS.forEach((w, i) => {
-    const owned = !w.unlock || o.has(w.unlock);
+    const owned = isUnlocked(w);
     const b = document.createElement('button'); b.className = 'arm-row' + (i === showWeapon ? ' sel' : '');
     const pct = (v) => Math.round(Math.min(1, v) * 100);
     b.innerHTML = `<span class="nm">${w.name.toUpperCase()}</span>
       <span class="st">DAÑO<div class="bar2"><i style="width:${pct(w.damage / 140)}%"></i></div>CADENCIA<div class="bar2"><i style="width:${pct((w.damage / w.fireRate) / maxDps)}%"></i></div></span>
-      <span class="own" style="color:${owned ? '#3fe3ff' : '#ffb347'}">${owned ? 'EQUIPADA' : 'BLOQUEADA'}</span>`;
+      <span class="own" style="color:${owned ? '#3fe3ff' : '#ffb347'}">${owned ? 'DISPONIBLE' : (w.legacy ? 'TIENDA' : 'NIVEL ' + w.lvl)}</span>`;
     b.onclick = () => { setShowWeapon(i); renderArms(); };
     $('hm-arms').appendChild(b);
   });
@@ -870,6 +1189,8 @@ $('set-quality').addEventListener('change', (e) => { SETTINGS.quality = e.target
 Wallet.onWalletChange(refreshUserChips);
 
 $('btn-play').onclick = startSolo;
+$('btn-hq').onclick = enterHQ;
+$('btn-loadout').onclick = () => openLoadout('menu');
 $('btn-online').onclick = openOnline;
 $('btn-restart').onclick = () => { if (online.board && mode === 'menu' && online.id) { online.board = null; openOnline(); } else startSolo(); };
 $('btn-go-menu').onclick = () => goMenu();
@@ -886,7 +1207,15 @@ Wallet.tryEagerConnect().then(refreshUserChips);
 let last = performance.now(), menuSpin = 0, timeScale = 1;
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000) * timeScale; last = now;
-  if (!paused && (mode === 'solo' || mode === 'online')) {
+  if (loadoutOpen) { // loadout screen: character on the stage, slightly left of centre
+    stageSpin += dt;
+    if (stageAvatar) stageAvatar.rotation.y = 0.55 + Math.sin(stageSpin * 0.6) * 0.3;
+    const off = -0.75 * Math.min(2.2, camera.aspect) / 2.16;
+    camera.position.set(STAGE_POS.x + off, STAGE_POS.y + 1.3, STAGE_POS.z - 3.4);
+    camera.lookAt(STAGE_POS.x + off, STAGE_POS.y + 1.05, STAGE_POS.z);
+  } else if (!paused && mode === 'hq') {
+    updateHQ(dt); hud();
+  } else if (!paused && (mode === 'solo' || mode === 'online')) {
     updatePlayer(dt); tryFire(dt);
     if (mode === 'solo') { updateBots(dt); updateProjectiles(dt); }
     else updateOnline(dt);
@@ -895,8 +1224,8 @@ function frame(now) {
     menuSpin += dt * 0.12;
     camera.rotation.set(0, 0, 0);
     if (showcase.visible) { // slowly rotating weapon on a lit pedestal
-      showModels[showWeapon].rotation.y = Math.PI / 2 + Math.sin(menuSpin * 2.5) * 0.3; // side profile, gentle sway
-      showModels[showWeapon].position.y = Math.sin(menuSpin * 6) * 0.03;
+      showModel(showWeapon).rotation.y = Math.PI / 2 + Math.sin(menuSpin * 2.5) * 0.3; // side profile, gentle sway
+      showModel(showWeapon).position.y = Math.sin(menuSpin * 6) * 0.03;
       // weapon sits in the right part of the screen, clear of the left menu + stats panel
       const off = 2.55 * camera.aspect / 2.16;
       camera.position.set(SHOW_POS.x - off, SHOW_POS.y + 0.3, SHOW_POS.z + 2.4);
@@ -917,4 +1246,4 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // Debug/test hook (used by the headless screenshot script).
-window.__zstrike = { camera, setMap: (id) => { mapId = id; buildWorld(id); }, setTimeScale: (v) => (timeScale = v), startSolo, openShop, openOnline, goMenu, selectSection, setShowWeapon, switchWeapon, addKill, damageEnemy, player, get enemies() { return enemies; }, get mode() { return mode; }, online, look };
+window.__zstrike = { camera, enterHQ, openLoadout, closeLoadout, startMode, addXp, showUnlocked, get loadouts() { return loadouts; }, get hqNear() { return hqNear; }, setMap: (id) => { mapId = id; buildWorld(id); }, setTimeScale: (v) => (timeScale = v), startSolo, openShop, openOnline, goMenu, selectSection, setShowWeapon, switchWeapon, addKill, damageEnemy, player, get enemies() { return enemies; }, get mode() { return mode; }, online, look };

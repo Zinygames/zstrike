@@ -202,6 +202,7 @@ function startMatch(L) {
 function fire(L, p, wIdx, o, d) {
   const w = WEAPONS[wIdx]; const now = Date.now();
   if (!w || !p.alive || L.state !== 'playing') return;
+  if (wIdx > 2) return; // v1 lobbies (paid / free test): only the three v1 weapons
   if (now < p.cdUntil) return;                          // fire-rate enforced server-side
   p.cdUntil = now + w.fireRate * 1000 * 0.85;
   const eye = { x: p.x, y: p.y + EYE, z: p.z };

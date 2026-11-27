@@ -1,9 +1,9 @@
 // ZStrike service worker: caches the static game files so it loads fast / offline (solo mode).
 // Never touches the multiplayer WebSocket (/ws), /health, Solana RPC or any cross-origin request.
-const CACHE = 'zstrike-v4';
+const CACHE = 'zstrike-v5';
 const ASSETS = [
   './', 'index.html', 'style.css', 'manifest.webmanifest',
-  'game.js', 'wallet.js', 'map.js', 'ai.js', 'config.js', 'weapons3d.js',
+  'game.js', 'wallet.js', 'map.js', 'ai.js', 'config.js', 'weapons3d.js', 'voxguns.js',
   'vendor/three.module.min.js', 'vendor/solana-web3.iife.min.js', 'vendor/buffer-polyfill.min.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png',
 ];

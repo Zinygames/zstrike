@@ -141,4 +141,10 @@ function rocket() {
 }
 
 const BUILDERS = { pistol, smg, rocket };
-export function makeWeaponModel(id) { return (BUILDERS[id] || pistol)(); }
+import { makeVoxelWeapon } from './voxguns.js';
+import { WEAPONS } from './config.js';
+export function makeWeaponModel(id) {
+  if (BUILDERS[id]) return BUILDERS[id]();
+  const def = WEAPONS.find((w) => w.id === id);
+  return def ? makeVoxelWeapon(def) : pistol();
+}
