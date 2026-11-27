@@ -378,3 +378,4 @@ body.touch #sv-pts { left:calc(176px + env(safe-area-inset-left)); bottom:34px; 
 .champ { display:inline-block; font-size:26px; font-weight:900; color:#ffd84d; letter-spacing:2px; animation:champ 1.2s ease-in-out infinite alternate; }
 @keyframes champ { from { transform:scale(1); text-shadow:0 0 6px #ffb347; } to { transform:scale(1.08); text-shadow:0 0 22px #ffd84d; } }
 #btn-use.locked { opacity:.55; border-color:#999; }
+@media (max-width: 760px) { #use-prompt { left: 40%; top: 60%; max-width: 46vw; } } /* small phones: keep the prompt clear of the ✺/💣 buttons */
