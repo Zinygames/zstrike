@@ -1441,7 +1441,7 @@ function drawMinimap() {
     if (!r.alive) return;
     const mate = online.teamMode && r.tm === online.myTeam;
     if (mate) return dot(r.mesh.position.x, r.mesh.position.z, '#3f8cff', 0.9);
-    if ((myUav && !r.ghost) || (r.pingUntil > now && !hasPerk('fantasma'))) dot(r.mesh.position.x, r.mesh.position.z, '#ff3b3b', 0.9);
+    if ((myUav && !r.ghost) || r.pingUntil > now) dot(r.mesh.position.x, r.mesh.position.z, '#ff3b3b', 0.9);
   });
   heliMeshes.forEach((h) => dot(h.position.x, h.position.z, '#ffd84d', 1.3));
   g.restore();
