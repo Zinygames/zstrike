@@ -286,3 +286,16 @@ html,body { font-family:"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; }
 @media (max-height:420px) { .lo-tabs { width:140px; } .lo-tabs button { font-size:10px; padding:6px 8px; } .lo-card { min-height:60px; } .lo-card img { height:28px; } }
 #xp-toast { position:fixed; left:50%; top:62%; transform:translateX(-50%); z-index:24; font-size:14px; font-weight:800; letter-spacing:2px; color:#ffd84d; text-shadow:2px 2px 0 #000; opacity:0; transition:opacity .25s; pointer-events:none; white-space:nowrap; }
 #xp-toast.on { opacity:1; }
+/* v2 weapons: scope, ammo, ADS/reload buttons */
+#scope { position:absolute; inset:0; display:none; background:radial-gradient(circle at 50% 50%, transparent 0, transparent 30vh, rgba(0,0,0,.92) 31vh, #000 60vh); }
+#scope.on { display:block; }
+#scope i { position:absolute; left:50%; top:50%; width:62vh; height:62vh; transform:translate(-50%,-50%); border-radius:50%; border:3px solid #000;
+  background:linear-gradient(#000,#000) center/100% 1px no-repeat, linear-gradient(#000,#000) center/1px 100% no-repeat; box-shadow:inset 0 0 40px rgba(0,0,0,.6); }
+#scope i::after { content:""; position:absolute; left:50%; top:50%; width:6px; height:6px; transform:translate(-50%,-50%); background:#ff2e2e; border-radius:50%; box-shadow:0 0 6px #ff2e2e; }
+#ammo { position:absolute; right:calc(16px + env(safe-area-inset-right)); bottom:12px; text-align:right; text-shadow:2px 2px 0 #000; }
+#ammo-n { font-size:30px; font-weight:800; } #ammo-n.low { color:#ff5a5a; } #ammo-m { font-size:15px; color:rgba(255,255,255,.7); margin-left:2px; }
+#ammo-w { font-size:11px; letter-spacing:2px; color:var(--cyan); font-weight:700; }
+body.touch #ammo { bottom:auto; top:120px; }
+#btn-ads { right:calc(130px + env(safe-area-inset-right)); bottom:110px; font-size:26px; }
+#btn-ads.on { background:rgba(63,227,255,.55); border-color:#fff; }
+#btn-reload { right:calc(200px + env(safe-area-inset-right)); bottom:40px; width:54px; height:54px; font-size:22px; }

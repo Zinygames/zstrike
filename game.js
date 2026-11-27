@@ -9,6 +9,7 @@ import { makeWeaponModel } from './weapons3d.js';
 
 const $ = (id) => document.getElementById(id);
 const IS_TOUCH = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+if (IS_TOUCH) document.body.classList.add('touch');
 
 // ---------------------------------------------------------------- persistence
 const LS = {
@@ -179,9 +180,9 @@ function dmgNumber(pos, dmg, head) {
   sp.scale.set(0.8, 0.4, 1); sp.position.set(pos.x + (Math.random() - 0.5) * 0.4, pos.y + 2.1, pos.z); scene.add(sp);
   fx.push({ obj: sp, life: 0.8, max: 0.8, v: new THREE.Vector3(0, 1.4, 0), noGrav: true });
 }
-function explosion(p) {
-  const m = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), new THREE.MeshBasicMaterial({ color: 0xff3df2, transparent: true, opacity: 0.7 }));
-  m.position.copy(p); scene.add(m); fx.push({ obj: m, life: 0.35, max: 0.35, grow: 3 });
+function explosion(p, size = 3.2, color = 0xff3df2) {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7 }));
+  m.position.copy(p); scene.add(m); fx.push({ obj: m, life: 0.35, max: 0.35, grow: size * 0.95 });
   burst(p, 0x14f195, 16, 8);
 }
 function updateFx(dt) {
@@ -198,7 +199,13 @@ function updateFx(dt) {
 const viewGun = new THREE.Group();
 const gunCache = {};
 function gunModel(i) {
-  if (!gunCache[i]) { const m = makeWeaponModel(WEAPONS[i].id); m.visible = false; viewGun.add(m); gunCache[i] = m; }
+  if (!gunCache[i]) {
+    const w = WEAPONS[i], m = makeWeaponModel(w.id); m.visible = false;
+    if (w.cls === 'bow') { m.rotation.z = 1.05; m.position.set(-0.05, 0.04, 0); }       // canted bow so you see the limbs
+    if (w.cls === 'launcher' && w.style) { m.position.set(0.06, 0.05, 0.05); m.scale.setScalar(0.85); } // shoulder-fired
+    if (w.cls === 'sniper' || w.cls === 'lmg') m.position.set(0, 0.01, 0.06);
+    viewGun.add(m); gunCache[i] = m;
+  }
   return gunCache[i];
 }
 const muzzle = new THREE.PointLight(0x46c8ff, 0, 3); viewGun.add(muzzle);
@@ -218,8 +225,19 @@ function gunTipWorld() {
 }
 
 // ---------------------------------------------------------------- player + input
-const player = { pos: new THREE.Vector3(), vy: 0, yaw: 0, pitch: 0, hp: 100, maxHp: 100, armor: 0, onGround: true, alive: true, weapon: 0, cd: 0, recoil: 0 };
-const input = { mx: 0, mz: 0, fire: false, jump: false, keys: {} };
+const player = { pos: new THREE.Vector3(), vy: 0, yaw: 0, pitch: 0, hp: 100, maxHp: 100, armor: 0, onGround: true, alive: true, weapon: 0, cd: 0, recoil: 0,
+  ammo: {}, reloadT: 0, reloadMax: 1, adsK: 0, draw: 0, boltT: 0, dualSide: 0, sprint: false, stamina: 1, fallFrom: 0 };
+const input = { mx: 0, mz: 0, fire: false, jump: false, ads: false, keys: {} };
+const v2On = () => !(mode === 'online' && online.legacy);
+function hasPerk(id) { return v2On() && curLoadout().perks.includes(id); }
+const curW = () => WEAPONS[player.weapon];
+function ammoOf(i) { if (player.ammo[i] === undefined) player.ammo[i] = WEAPONS[i].mag || Infinity; return player.ammo[i]; }
+function resetAmmo() { player.ammo = {}; player.reloadT = 0; player.draw = 0; player.boltT = 0; player.adsK = 0; input.ads = false; }
+function startReload() {
+  const w = curW(); if (!w.mag || player.reloadT > 0 || ammoOf(player.weapon) >= w.mag || !player.alive) return;
+  player.reloadMax = player.reloadT = w.reload * (hasPerk('manos') ? 0.65 : 1); player.reloadW = player.weapon; player.draw = 0;
+  if (mode === 'online' && !online.legacy) online.send({ t: 'reload', w: player.weapon });
+}
 let mode = 'menu';      // 'menu' | 'solo' | 'online'
 let paused = true;
 
@@ -236,6 +254,8 @@ function switchWeapon(dir = 1, idx = null) {
   if (idx !== null) { if (av.includes(idx)) player.weapon = idx; }
   else { const k = av.indexOf(player.weapon); player.weapon = av[(k + dir + av.length) % av.length]; }
   const w = WEAPONS[player.weapon];
+  if (player.reloadW !== player.weapon) player.reloadT = 0;
+  player.draw = 0; player.boltT = 0; player.cd = Math.max(player.cd, 0.25);
   Object.entries(gunCache).forEach(([i, m]) => (m.visible = +i === player.weapon));
   const mz = gunModel(player.weapon).userData.muzzle; gunModel(player.weapon).visible = true;
   muzzle.color.setHex(w.color); muzzle.position.copy(mz); flash.position.copy(mz).add(new THREE.Vector3(0, 0, -0.03));
@@ -248,21 +268,26 @@ addEventListener('keydown', (e) => {
   if (mode === 'menu') return;
   if (e.code === 'Space') input.jump = true;
   if (e.code === 'KeyQ') switchWeapon(1);
+  if (e.code === 'KeyR') startReload();
   if (['Digit1', 'Digit2', 'Digit3'].includes(e.code)) switchWeapon(0, +e.code.slice(5) - 1);
   if (e.code === 'KeyB' && mode === 'solo') openShop();
   if (e.code === 'KeyE' && mode === 'hq') hqInteract();
 });
 addEventListener('keyup', (e) => { input.keys[e.code] = false; });
-canvas.addEventListener('mousedown', () => {
+canvas.addEventListener('mousedown', (e) => {
   if (paused || IS_TOUCH) return;
-  if (document.pointerLockElement !== canvas) canvas.requestPointerLock?.(); else input.fire = true;
+  if (document.pointerLockElement !== canvas) canvas.requestPointerLock?.();
+  else if (e.button === 2) input.ads = true; else input.fire = true;
 });
-addEventListener('mouseup', () => { if (!IS_TOUCH) input.fire = false; });
+addEventListener('mouseup', (e) => { if (IS_TOUCH) return; if (e.button === 2) input.ads = false; else input.fire = false; });
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+addEventListener('wheel', (e) => { if (mode === 'solo' || mode === 'online' || (mode === 'hq' && hqInRange)) switchWeapon(e.deltaY > 0 ? 1 : -1); });
 addEventListener('mousemove', (e) => {
   if (document.pointerLockElement === canvas) look(e.movementX * 0.0022, e.movementY * 0.0022);
 });
 function look(dx, dy) {
-  dx *= SETTINGS.sens; dy *= SETTINGS.sens;
+  const zoom = camera.fov / 75; // slower aim while zoomed (ADS / scope)
+  dx *= SETTINGS.sens * zoom; dy *= SETTINGS.sens * zoom;
   player.yaw -= dx; player.pitch = Math.max(-1.45, Math.min(1.45, player.pitch - dy));
 }
 
@@ -295,6 +320,8 @@ lookHandlers($('look-zone'));
 lookHandlers($('btn-fire'), () => { input.fire = true; }, () => { input.fire = false; });
 $('btn-jump').addEventListener('pointerdown', (e) => { input.jump = true; e.preventDefault(); });
 $('btn-switch').addEventListener('pointerdown', (e) => { switchWeapon(1); e.preventDefault(); });
+$('btn-ads').addEventListener('pointerdown', (e) => { input.ads = !input.ads; $('btn-ads').classList.toggle('on', input.ads); e.preventDefault(); });
+$('btn-reload').addEventListener('pointerdown', (e) => { startReload(); e.preventDefault(); });
 
 // ---------------------------------------------------------------- HUD helpers
 let hitTimer = 0, flashTimer = 0, bannerTimer = 0;
@@ -304,6 +331,11 @@ function hud() {
   $('armor-bar').classList.toggle('hidden', !player.armor);
   $('coins-text').textContent = '🪙 ' + coins;
   $('score-text').textContent = mode === 'online' ? (online.myKills + ' kills') : (score + ' pts');
+  const w = curW(), am = ammoOf(player.weapon);
+  $('ammo-n').textContent = player.reloadT > 0 ? '··' : (am === Infinity ? '∞' : am);
+  $('ammo-n').classList.toggle('low', w.mag > 0 && am <= Math.max(1, Math.floor(w.mag * 0.25)));
+  $('ammo-m').textContent = w.mag ? '/' + w.mag : '';
+  $('ammo-w').textContent = player.reloadT > 0 ? 'RECARGANDO…' : (w.kind === 'arrow' && player.draw > 0 ? 'TENSANDO ' + Math.round(Math.min(1, player.draw / w.draw) * 100) + '%' : w.name.toUpperCase());
 }
 function banner(text, t = 2) { $('banner').textContent = text; $('banner').classList.add('on'); bannerTimer = t; }
 function hitMarker() { $('hit-marker').classList.add('on'); hitTimer = 0.12; }
@@ -338,21 +370,53 @@ function updatePlayer(dt, speedMult = 1) {
   const len = Math.hypot(mx, mz); if (len > 1) { mx /= len; mz /= len; }
   const s = Math.sin(player.yaw), c = Math.cos(player.yaw);
   // forward = (-sin, -cos), right = (cos, -sin)
-  const sp = SPEED * speedMult;
+  const wq = curW();
+  let sp = SPEED * speedMult * (v2On() ? (wq.move || 1) * (hasPerk('agil') ? 1.1 : 1) * (1 - player.adsK * 0.35) : 1);
+  // sprint (Shift, or joystick pushed to the edge): faster, weapon lowered, can't shoot
+  const wantSprint = v2On() && player.alive && mz < -0.6 && (input.keys.ShiftLeft || input.keys.ShiftRight || Math.hypot(input.mx, input.mz) > 0.97) && !input.ads && !input.fire;
+  const maxSt = hasPerk('maraton') ? 8 : 4;
+  if (wantSprint && player.stamina > 0) { player.sprint = true; player.stamina = Math.max(0, player.stamina - dt / maxSt); sp *= 1.35; }
+  else { player.sprint = false; player.stamina = Math.min(1, player.stamina + dt / 3); }
   const dx = (mx * c + mz * s) * sp * dt, dz = (-mx * s + mz * c) * sp * dt;
   if (player.alive) map.moveCircle(player.pos, dx, dz, PR);
   if (input.jump && player.onGround && player.alive) { player.vy = JUMP_V; player.onGround = false; }
   input.jump = false;
   player.vy -= GRAVITY * dt; player.pos.y += player.vy * dt;
   const g = map.groundUnder(player.pos.x, player.pos.z, PR);
-  if (player.pos.y <= g) { player.pos.y = g; player.vy = 0; player.onGround = true; } else player.onGround = false;
+  if (player.pos.y <= g) {
+    // fall damage for big drops (Pluma perk = none); online the server applies it
+    if (!player.onGround && v2On() && player.alive) { const drop = player.fallFrom - g; if (drop > 3.2 && !hasPerk('pluma')) fallDamage(Math.round((drop - 3.2) * 18)); }
+    player.pos.y = g; player.vy = 0; player.onGround = true;
+  } else { if (player.onGround || player.pos.y > player.fallFrom) player.fallFrom = player.pos.y; player.onGround = false; }
   camera.position.set(player.pos.x, player.pos.y + EYE, player.pos.z);
   camera.rotation.set(player.pitch, player.yaw, 0, 'YXZ');
   // weapon bob + recoil
   const bob = player.onGround ? Math.sin(performance.now() / 110) * 0.012 * Math.min(1, len) : 0;
   player.recoil = Math.max(0, player.recoil - dt * 6);
-  viewGun.position.set(0.2, -0.17 + bob, -0.42 + player.recoil * 0.08);
-  viewGun.rotation.x = player.recoil * 0.3;
+  // ADS (aim down sights): FOV zoom + gun to the centre; snipers switch to a scope overlay
+  const w = curW(), adsRate = 1 / ((w.adsTime || 0.2) * (hasPerk('halcon') ? 0.6 : 1));
+  const wantAds = input.ads && player.alive && player.reloadT <= 0 && !player.sprint;
+  player.adsK = Math.max(0, Math.min(1, player.adsK + (wantAds ? dt : -dt) * adsRate));
+  const fov = 75 + ((w.ads || 60) - 75) * player.adsK * (w.cls === 'sniper' ? (player.adsK > 0.85 ? 1 : 0.3) : 1);
+  if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = fov; camera.updateProjectionMatrix(); }
+  const scoped = w.cls === 'sniper' && player.adsK > 0.85 && (mode !== 'hq' || hqInRange);
+  $('scope').classList.toggle('on', scoped); $('crosshair').classList.toggle('hidden', scoped || player.adsK > 0.5);
+  // reload / bolt / bow-draw / sprint animations
+  if (player.reloadT > 0) {
+    player.reloadT -= dt;
+    if (player.reloadT <= 0) { player.ammo[player.reloadW] = WEAPONS[player.reloadW].mag || Infinity; player.reloadT = 0; }
+  }
+  const rk = player.reloadT > 0 ? Math.sin((1 - player.reloadT / player.reloadMax) * Math.PI) : 0;
+  player.boltT = Math.max(0, player.boltT - dt);
+  const bk = w.bolt && player.boltT > 0 ? Math.sin(Math.min(1, (1 - player.boltT / (w.fireRate * 0.8))) * Math.PI) : 0;
+  const drawK = w.kind === 'arrow' ? Math.min(1, player.draw / (w.draw || 0.8)) : 0;
+  const spk = player.sprint ? 1 : 0; player.sprintK = (player.sprintK || 0) + (spk - (player.sprintK || 0)) * Math.min(1, dt * 10);
+  const a = player.adsK, sw = Math.sin(performance.now() / 600) * 0.004 * (1 - a);
+  const dual = w.dual ? 0.1 : 0;
+  viewGun.position.set(0.2 * (1 - a) + dual + sw, -0.17 + 0.065 * a + bob * (1 - a * 0.8) - rk * 0.12 - player.sprintK * 0.06, -0.42 + 0.06 * a + player.recoil * 0.08 * (1 - a * 0.5) + drawK * 0.07);
+  viewGun.rotation.set(player.recoil * 0.3 * (1 - a * 0.6) - rk * 0.7 - player.sprintK * 0.5, player.sprintK * 0.6, rk * 0.35 + bk * 0.45);
+  viewGun.visible = !scoped && (mode !== 'hq' || hqInRange);
+  if (w.dual) { const L = gunModel(player.weapon).getObjectByName('left'); if (L) L.position.z = 0.02 + (player.dualSide ? player.recoil * 0.06 : 0); }
 }
 
 // ---------------------------------------------------------------- shooting
@@ -363,25 +427,51 @@ function aimDir(spread) {
   tmpDir.x += (Math.random() - 0.5) * spread * 2; tmpDir.y += (Math.random() - 0.5) * spread * 2; tmpDir.z += (Math.random() - 0.5) * spread * 2;
   return tmpDir.normalize().clone();
 }
+function curSpread(w) {
+  let sp = w.spread * (hasPerk('pulso') ? 0.6 : 1) * (Math.hypot(input.mx, input.mz) > 0.2 || ['KeyW', 'KeyA', 'KeyS', 'KeyD'].some((k) => input.keys[k]) ? 1.3 : 1);
+  if (!player.onGround) sp *= 1.6;
+  const adsSp = w.cls === 'sniper' ? 0 : w.spread * 0.18;
+  return sp + (adsSp - sp) * player.adsK;
+}
 function tryFire(dt) {
   player.cd -= dt;
-  if (!input.fire || player.cd > 0 || !player.alive) return;
-  const w = WEAPONS[player.weapon]; player.cd = w.fireRate; player.recoil = 1;
+  const w = curW();
+  if (!player.alive || player.reloadT > 0) { player.draw = 0; return; }
+  if (w.kind === 'arrow') { // bows: hold to draw, release to shoot (damage + speed scale with the draw)
+    if (input.fire && player.cd <= 0 && !player.sprint) { player.draw += dt; return; }
+    if (player.draw > 0.08 && !input.fire) { const c = Math.min(1, player.draw / (w.draw || 0.8)); player.draw = 0; shoot(w, c); }
+    else if (!input.fire) player.draw = 0;
+    return;
+  }
+  if (!input.fire || player.cd > 0 || player.sprint) return;
+  if (ammoOf(player.weapon) <= 0) { startReload(); return; }
+  shoot(w, 1);
+}
+function shoot(w, charge) {
+  player.cd = w.fireRate; player.recoil = 1;
+  if (w.mag) { player.ammo[player.weapon] = ammoOf(player.weapon) - 1; if (player.ammo[player.weapon] <= 0) setTimeout(startReload, w.bolt ? 450 : 150); }
+  if (w.bolt) player.boltT = w.fireRate * 0.8;
+  if (v2On()) player.pitch = Math.min(1.45, player.pitch + ({ sniper: 0.03, lmg: 0.008, rifle: 0.007, smg: 0.004, pistol: 0.012, launcher: 0.03, bow: 0.006 }[w.cls] || 0.005) * (1 - player.adsK * 0.4));
   muzzle.intensity = 4; setTimeout(() => (muzzle.intensity = 0), 50);
+  const gm = gunModel(player.weapon);
+  if (w.dual) { player.dualSide ^= 1; const mz = player.dualSide ? gm.userData.muzzle2 : gm.userData.muzzle; flash.position.copy(mz); muzzle.position.copy(mz); }
   flash.visible = true; flash.scale.setScalar(0.12 + Math.random() * 0.08); flash.material.rotation = Math.random() * 6; flashT = 0.05;
-  const o = eyePos(), d = aimDir(w.spread);
+  const o = eyePos(), d = aimDir(curSpread(w));
   const gunTip = gunTipWorld();
   if (mode === 'online') {
-    online.send({ t: 'shot', w: player.weapon, o: { x: o.x, y: o.y, z: o.z }, d: { x: d.x, y: d.y, z: d.z } });
+    online.send({ t: 'shot', w: player.weapon, o: { x: o.x, y: o.y, z: o.z }, d: { x: d.x, y: d.y, z: d.z }, c: +charge.toFixed(2) });
+    if (w.kind === 'arrow') { spawnArrow(o, d, w, charge, true); return; }
     const end = o.clone().addScaledVector(d, map.rayWallDistance(o, d, w.range));
-    if (w.kind === 'rocket') { bolt(gunTip, end, w.color, 40); setTimeout(() => explosion(end), Math.min(600, end.distanceTo(gunTip) / 40 * 1000)); }
+    if (w.kind === 'rocket') { const spd = w.speed || 26; bolt(gunTip, end, w.color, spd); setTimeout(() => explosion(end, w.splash), Math.min(3000, end.distanceTo(gunTip) / spd * 1000)); }
     else bolt(gunTip, end, w.color);
     return;
   }
   if (w.kind === 'rocket') { spawnRocket(gunTip, d, w); return; }
+  if (w.kind === 'arrow') { spawnArrow(o, d, w, charge, false); return; }
   const wallT = map.rayWallDistance(o, d, w.range);
   let best = null;
   for (const e of enemies) {
+    if (e.dummy && !e.mesh.visible) continue;
     const h = rayHitPlayer(o, d, e.pos);
     if (h && h.t < wallT && (!best || h.t < best.h.t)) best = { e, h };
   }
@@ -389,6 +479,11 @@ function tryFire(dt) {
   bolt(gunTip, end, w.color);
   if (best) { damageEnemy(best.e, w.damage * stats().dmgMult * (best.h.head ? 2 : 1), best.h.head, player.weapon); burst(end, w.color, 5); }
   else burst(end, w.color, 3, 2);
+}
+function fallDamage(n) {
+  if (n <= 0) return;
+  if (mode === 'online') online.send({ t: 'fall', dmg: n });
+  else if (mode === 'solo') hurtPlayer(n, 'Caída');
 }
 
 // ---------------------------------------------------------------- solo mode: bots, waves
@@ -402,7 +497,7 @@ function startSolo() {
   Object.assign(player, { hp: st.maxHp, maxHp: st.maxHp, armor: st.armor, alive: true, vy: 0, yaw: 0, pitch: 0, cd: 0 });
   const sp = map.spawns[0][2] || map.spawns[0][0]; player.pos.set(sp[0], 0, sp[1]);
   player.yaw = Math.PI; // face north (+z) toward the far end
-  player.weapon = availableWeapons()[0]; switchWeapon(0, player.weapon);
+  resetAmmo(); player.weapon = availableWeapons()[0]; switchWeapon(0, player.weapon);
   wave = 0; score = 0; waveTimer = 1.5; botSeq = 0; $('killfeed').innerHTML = '';
   $('mp-timer').classList.add('hidden'); $('scoreboard').classList.add('hidden'); $('btn-shop').classList.remove('hidden');
   showGame();
@@ -476,23 +571,44 @@ function updateBots(dt) {
 function spawnRocket(from, d, w) {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.4), new THREE.MeshBasicMaterial({ color: w.color }));
   mesh.position.copy(from); mesh.lookAt(from.clone().add(d)); scene.add(mesh);
-  projectiles.push({ mesh, v: d.clone().multiplyScalar(w.speed), rocket: w, life: 4 });
+  projectiles.push({ mesh, v: d.clone().multiplyScalar(w.speed), rocket: w, wIdx: player.weapon, life: 4 });
+}
+// Bow arrows: ballistic (gravity), speed + damage scale with the draw. cosmetic=true online (server decides).
+const ARROW_G = 9;
+function spawnArrow(o, d, w, charge, cosmetic) {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.6), new THREE.MeshBasicMaterial({ color: w.color }));
+  mesh.position.copy(o).addScaledVector(d, 0.4); scene.add(mesh);
+  const spd = (w.speed || 50) * (0.45 + 0.55 * charge);
+  projectiles.push({ mesh, v: d.clone().multiplyScalar(spd), arrow: w, charge, cosmetic, wIdx: player.weapon, life: 4, g: ARROW_G });
 }
 function updateProjectiles(dt) {
   for (let i = projectiles.length - 1; i >= 0; i--) {
     const p = projectiles[i]; p.life -= dt;
+    const prev = p.mesh.position.clone();
+    if (p.g) { p.v.y -= p.g * dt; p.mesh.lookAt(prev.clone().add(p.v)); }
     p.mesh.position.addScaledVector(p.v, dt); const pos = p.mesh.position;
     let dead = p.life <= 0 || pos.y <= 0 || map.heightAt(pos.x, pos.z) > pos.y;
+    if (p.arrow) {
+      if (!p.cosmetic && !p.stuck) {
+        const seg = pos.clone().sub(prev), L = seg.length(), dn = seg.clone().divideScalar(L || 1);
+        let best = null;
+        for (const e of enemies) { if (e.dummy && !e.mesh.visible) continue; const h = rayHitPlayer(prev, dn, e.pos); if (h && h.t <= L && (!best || h.t < best.h.t)) best = { e, h }; }
+        if (best) { damageEnemy(best.e, p.arrow.damage * (0.35 + 0.65 * p.charge) * stats().dmgMult * (best.h.head ? 2 : 1), best.h.head, p.wIdx); burst(pos.clone(), p.arrow.color, 6); dead = true; }
+      }
+      if (dead && !p.stuck && p.life > 0) { p.stuck = true; p.v.set(0, 0, 0); p.g = 0; p.life = Math.min(p.life, 2.5); dead = false; } // arrow sticks in the wall
+      if (p.stuck) dead = p.life <= 0;
+    }
     if (p.enemy) {
       const dx = pos.x - player.pos.x, dz = pos.z - player.pos.z, dy = pos.y - (player.pos.y + 1);
       if (Math.abs(dx) < 0.45 && Math.abs(dz) < 0.45 && Math.abs(dy) < 0.95) { hurtPlayer(p.dmg, p.from); dead = true; }
     } else if (p.rocket) {
       if (!dead) for (const e of enemies) if (rayHitPlayer(pos, { x: 0, y: 1, z: 0 }, { x: e.pos.x, y: e.pos.y - 0.01, z: e.pos.z }) && Math.abs(pos.x - e.pos.x) < 0.45 && Math.abs(pos.z - e.pos.z) < 0.45 && pos.y < e.pos.y + 1.9) { dead = true; break; }
       if (dead) {
-        explosion(pos.clone());
+        explosion(pos.clone(), p.rocket.splash);
         for (const e of [...enemies]) {
+          if (e.dummy && !e.mesh.visible) continue;
           const d = Math.hypot(e.pos.x - pos.x, e.pos.y + 1 - pos.y, e.pos.z - pos.z);
-          if (d < p.rocket.splash) damageEnemy(e, p.rocket.damage * stats().dmgMult * (1 - d / p.rocket.splash * 0.6), false, 2);
+          if (d < p.rocket.splash) damageEnemy(e, p.rocket.damage * stats().dmgMult * (1 - d / p.rocket.splash * 0.6), false, p.wIdx ?? 2);
         }
       }
     }
@@ -619,11 +735,11 @@ const online = {
     $('scoreboard').innerHTML = b.slice(0, 6).map((x, i) => `<div class="${x.id === this.id ? 'me' : ''}">${i + 1}. ${esc(x.name)} ${x.kills}/${x.deaths}</div>`).join('');
   },
   startMatch(m) {
-    mode = 'online'; this.inMatch = true; clearSolo(); this.clearRemotes();
+    mode = 'online'; this.inMatch = true; clearSolo(); this.clearRemotes(); this.legacy = m.legacy ?? !m.mode; resetAmmo();
     buildWorld(m.map); this.endsAt = Date.now() + m.secondsLeft * 1000; this.board = m.board; this.renderBoard();
     Object.assign(player, { hp: 100, maxHp: 100, armor: 0, alive: true, vy: 0, pitch: 0, cd: 0 });
     player.pos.set(m.spawn.x, 0, m.spawn.z); player.yaw = m.spawn.z > map.l / 2 ? 0 : Math.PI;
-    switchWeapon(0, 0); $('wave-text').textContent = 'DEATHMATCH';
+    player.weapon = availableWeapons()[0]; switchWeapon(0, player.weapon); $('wave-text').textContent = 'DEATHMATCH';
     $('mp-timer').classList.remove('hidden'); $('scoreboard').classList.remove('hidden'); $('btn-shop').classList.add('hidden');
     $('online').classList.add('hidden'); $('online').classList.remove('in-lobby'); showGame(); banner((MAPS[m.map]?.name || '').toUpperCase() + ' · ¡A PELEAR!');
   },
@@ -972,7 +1088,7 @@ function hqResume() {
   } else setAvatarGun(hqAvatar, curLoadout().primary);
   hqAvatar.visible = true;
   const bg = worldGroup.getObjectByName('bench-gun'); if (bg) { const np = makeWeaponModel(curLoadout().primary); np.scale.setScalar(1.6); np.position.copy(bg.position); np.name = 'bench-gun'; worldGroup.remove(bg); worldGroup.add(np); }
-  player.weapon = availableWeapons()[0]; switchWeapon(0, player.weapon);
+  resetAmmo(); player.weapon = availableWeapons()[0]; switchWeapon(0, player.weapon);
   $('hq-hud').classList.remove('hidden'); $('touch').classList.toggle('hidden', !IS_TOUCH);
   setNet(netMode); paused = false; hqInRange = false; applyRangeUI();
 }
@@ -1246,4 +1362,4 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // Debug/test hook (used by the headless screenshot script).
-window.__zstrike = { camera, enterHQ, openLoadout, closeLoadout, startMode, addXp, showUnlocked, get loadouts() { return loadouts; }, get hqNear() { return hqNear; }, setMap: (id) => { mapId = id; buildWorld(id); }, setTimeScale: (v) => (timeScale = v), startSolo, openShop, openOnline, goMenu, selectSection, setShowWeapon, switchWeapon, addKill, damageEnemy, player, get enemies() { return enemies; }, get mode() { return mode; }, online, look };
+window.__zstrike = { camera, WEAPONS, input, enterHQ, openLoadout, closeLoadout, startMode, addXp, showUnlocked, get loadouts() { return loadouts; }, get hqNear() { return hqNear; }, setMap: (id) => { mapId = id; buildWorld(id); }, setTimeScale: (v) => (timeScale = v), startSolo, openShop, openOnline, goMenu, selectSection, setShowWeapon, switchWeapon, addKill, damageEnemy, player, get enemies() { return enemies; }, get mode() { return mode; }, online, look };
