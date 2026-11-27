@@ -1,6 +1,6 @@
 // ZStrike service worker: caches the static game files so it loads fast / offline (solo mode).
 // Never touches the multiplayer WebSocket (/ws), /health, Solana RPC or any cross-origin request.
-const CACHE = 'zstrike-v7';
+const CACHE = 'zstrike-v8';
 const ASSETS = [
   './', 'index.html', 'style.css', 'manifest.webmanifest',
   'game.js', 'wallet.js', 'map.js', 'ai.js', 'config.js', 'weapons3d.js', 'voxguns.js', 'match.js',

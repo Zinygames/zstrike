@@ -11,7 +11,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import * as web3 from '@solana/web3.js';
-import { createMap, MAPS, DEFAULT_MAP } from '../map.js';
+import { createMap, MAPS, DEFAULT_MAP, V2_MAPS } from '../map.js';
 import { MODES } from '../config.js';
 import { initMatch, newPlayer, beginMatch, tickMatch, handleMsg, board, setLoadout } from '../match.js';
 
@@ -120,9 +120,16 @@ const BOT_NAMES = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Gol
 let nextId = 1;
 const newId = (p) => p + (nextId++).toString(36);
 
+// Maps on the vote: v1 lobbies (paid / free test) keep the original maps; v2 modes get the new ones too
+// (CTF only on maps with real flag routes).
+function mapsFor(mode) {
+  if (!mode) return Object.keys(MAPS).filter((k) => !V2_MAPS.includes(k));
+  if (mode === 'ctf') return ['barrio', ...V2_MAPS];
+  return Object.keys(MAPS);
+}
 function makeLobby({ paid, mapId, size, mode = null }) {
-  const id = newId('L');
-  const L = { id, paid, mapId: MAPS[mapId] ? mapId : DEFAULT_MAP, size, players: new Map(), votes: new Map(), state: 'waiting', createdAt: Date.now(), potLamports: 0, endsAt: 0, countdownAt: 0 };
+  const id = newId('L'), pool = mapsFor(paid ? null : mode);
+  const L = { id, paid, mapId: pool.includes(mapId) ? mapId : pool[0], size, players: new Map(), votes: new Map(), state: 'waiting', createdAt: Date.now(), potLamports: 0, endsAt: 0, countdownAt: 0 };
   L.map = createMap(L.mapId);
   // gameplay (hits, damage, streaks, objectives, bots) lives in the shared match module
   initMatch(L, { mode: paid ? null : mode, seconds: mode ? undefined : CFG.matchSeconds, bcast: (m) => lobbyBroadcast(L, m), sendTo: (p, m) => { if (p.conn) send(p.conn, m); }, onEnd: (L2, res) => endMatch(L2, res) });
@@ -132,17 +139,17 @@ function lobbyBroadcast(L, m) { const s = JSON.stringify(m); for (const p of L.p
 function lobbySummary(L) {
   return { t: 'lobby', id: L.id, size: L.size, state: L.state, map: L.mapId, paid: L.paid, mode: L.mode,
     countdown: L.state === 'countdown' ? Math.ceil((L.countdownAt - Date.now()) / 1000) : 0,
-    maps: Object.keys(MAPS), votes: voteCounts(L),
+    maps: mapsFor(L.mode), votes: voteCounts(L),
     players: [...L.players.values()].map((p) => ({ id: p.id, name: p.name, bot: p.bot, vote: L.votes.get(p.id) || null })) };
 }
 // ---- map vote (server-authoritative): humans vote, majority wins, ties broken at random
 function voteCounts(L) {
-  const c = Object.fromEntries(Object.keys(MAPS).map((k) => [k, 0]));
+  const c = Object.fromEntries(mapsFor(L.mode).map((k) => [k, 0]));
   for (const [pid, m] of L.votes) if (L.players.has(pid) && c[m] !== undefined) c[m]++;
   return c;
 }
 function castVote(L, pid, mapId) {
-  if (!MAPS[mapId] || !(L.state === 'waiting' || L.state === 'countdown')) return false;
+  if (!mapsFor(L.mode).includes(mapId) || !(L.state === 'waiting' || L.state === 'countdown')) return false;
   L.votes.set(pid, mapId); return true;
 }
 function resolveVote(L) {

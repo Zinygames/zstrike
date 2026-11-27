@@ -165,8 +165,151 @@ export const MAPS = {
       R(3, 4, 21, 21, 0.8, 3); R(11, 11, 19, 19, 0.8, 3); R(27, 27, 20, 20, 0.8, 3); // planters / mailbox
     },
   },
+  // ---------------- v2 maps (original layouts; 180° rotational symmetry like Barrio, so both teams get the same side)
+  templo: {
+    name: 'Templo de la Selva', desc: 'Ruinas de piedra con altar elevado, patio con estanque y senderos entre árboles.',
+    w: 33, l: 46, lanes: [6.5, 16.5, 26.5],
+    theme: {
+      floor: ['#1d2a14', '#5c8a3a'], bg: 0x0b1a10,
+      1: ['#2b3b22', '#6fa04a'], 2: ['#5a5a48', '#8f8f70'], 3: ['#2f5a1e', '#5fae3a'], 4: ['#6b6650', '#a8a080'],
+      5: ['#77705a', '#b8ae8a'], 6: ['#4a3220', '#6e4a2e'], 7: ['#0f6f8e', '#5fe0ff'], 8: ['#c9a227', '#ffe27a'], glow: [7, 8],
+      strip: 0x5fe0ff, preview: ['#1d2a14', '#6fa04a', '#8f8f70', '#5fae3a', '#a8a080', '#b8ae8a', '#6e4a2e', '#5fe0ff', '#ffe27a'],
+    },
+    build(set, m) {
+      const R = rot(set, m);
+      // temple (x 9..23, z 7..13): stone walls, front gate, side doors, low windows; upstairs altar (h 2) with two stairways
+      R(9, 23, 7, 7, 4, 2); R(9, 9, 7, 13, 4, 2); R(23, 23, 7, 13, 4, 2); R(9, 23, 13, 13, 4, 2);
+      R(15, 17, 13, 13, 0, 0); R(9, 9, 11, 12, 0, 0); R(23, 23, 11, 12, 0, 0);
+      R(11, 12, 13, 13, 1, 4); R(20, 21, 13, 13, 1, 4);
+      R(10, 22, 8, 9, 2, 4);
+      R(10, 10, 10, 10, 1.5, 5); R(11, 11, 10, 10, 1, 5); R(12, 12, 10, 10, 0.5, 5);
+      R(22, 22, 10, 10, 1.5, 5); R(21, 21, 10, 10, 1, 5); R(20, 20, 10, 10, 0.5, 5);
+      R(16, 16, 8, 8, 2.6, 8); // altar torch
+      // west ruin ledge ("second floor") with stairs
+      R(2, 5, 11, 14, 2, 4); R(2, 3, 15, 15, 1.5, 5); R(2, 3, 16, 16, 1, 5); R(2, 3, 17, 17, 0.5, 5); R(5, 5, 11, 11, 2.6, 8);
+      // courtyard: water pool with stepping stones and a broken rim
+      R(12, 20, 20, 22, 0.05, 7); R(16, 16, 20, 22, 0.3, 5); R(11, 13, 19, 19, 0.4, 5); R(19, 21, 19, 19, 0.4, 5);
+      for (const x of [9, 23]) for (const z of [16, 19]) R(x, x, z, z, 4, 2);
+      R(13, 15, 16, 16, 1.2, 3); R(6, 8, 19, 19, 1.2, 3); R(25, 27, 15, 15, 1.2, 3);
+      // jungle: trunks + bushes
+      for (const [x, z] of [[3, 8], [7, 15], [28, 6], [2, 21], [29, 17], [26, 21], [12, 4], [20, 2]]) R(x, x, z, z, 3.6, 6);
+      for (const [x, z] of [[4, 8], [8, 15], [27, 6], [29, 18], [25, 21], [13, 4]]) R(x, x, z, z, 1, 3);
+    },
+  },
+  nuclear: {
+    name: 'Suburbio Nuclear', desc: 'Pueblo de pruebas: casas con altillo, jardines con cercas y un bus escolar en la calle.',
+    w: 33, l: 46, lanes: [6.5, 16.5, 26.5],
+    theme: {
+      floor: ['#3a3424', '#8a7a50'], bg: 0x1a1410,
+      1: ['#4a4030', '#a08a5a'], 2: ['#6a8a9a', '#a8d0e0'], 3: ['#b8b0a0', '#e8e0d0'], 4: ['#7a5a3a', '#a07a50'],
+      5: ['#6a4a2a', '#8a6a4a'], 6: ['#c89a1a', '#ffd23d'], 7: ['#2a8aa8', '#9fe8ff'], 8: ['#d86a1a', '#ffb060'], glow: [7, 8],
+      strip: 0xffb060, preview: ['#3a3424', '#a08a5a', '#a8d0e0', '#e8e0d0', '#a07a50', '#8a6a4a', '#ffd23d', '#9fe8ff', '#ffb060'],
+    },
+    build(set, m) {
+      const R = rot(set, m), WALL = 4, WIN = 2.9, SILL = 1;
+      // loft house (x 3..12, z 7..14)
+      R(3, 12, 7, 7, WALL, 2); R(3, 3, 7, 14, WALL, 2); R(12, 12, 7, 14, WALL, 2); R(3, 12, 14, 14, WALL, 2);
+      R(7, 8, 14, 14, 0, 0); R(12, 12, 11, 12, 0, 0); R(4, 5, 14, 14, WIN, 7); R(10, 11, 14, 14, SILL, 7); R(3, 3, 9, 10, WIN, 7);
+      R(4, 6, 8, 11, 2, 4); R(7, 7, 9, 9, 1.5, 5); R(8, 8, 9, 9, 1, 5); R(9, 9, 9, 9, 0.5, 5);
+      R(10, 11, 8, 8, SILL, 3);
+      // garage house (x 20..29, z 9..15): open garage door, car inside
+      R(20, 29, 9, 9, WALL, 2); R(20, 20, 9, 15, WALL, 2); R(29, 29, 9, 15, WALL, 2); R(20, 29, 15, 15, WALL, 2);
+      R(22, 26, 15, 15, 0, 0); R(20, 20, 11, 12, 0, 0); R(29, 29, 12, 12, SILL, 7);
+      R(23, 25, 11, 12, 1.2, 6); R(27, 28, 10, 10, 1.5, 3);
+      // picket fences with gates
+      R(1, 5, 16, 16, 0.9, 3); R(9, 13, 16, 16, 0.9, 3); R(19, 22, 17, 17, 0.9, 3); R(27, 31, 17, 17, 0.9, 3);
+      // street: school bus across the centre (z 22..23 maps onto itself), cars, test mannequins, hydrant
+      R(12, 20, 22, 22, 2.2, 6); for (const x of [13, 15, 17, 19]) R(x, x, 22, 22, 2.2, 7);
+      R(5, 7, 19, 20, 1.2, 6); R(7, 7, 19, 20, 1.2, 8); R(25, 27, 20, 20, 1.2, 6);
+      for (const [x, z] of [[10, 19], [23, 20], [15, 18]]) R(x, x, z, z, 1.8, 4);
+      R(2, 2, 21, 21, 0.7, 8); R(30, 30, 19, 19, 0.7, 8);
+      R(19, 21, 4, 4, 1, 3); // backyard planter
+    },
+  },
+  azotea: {
+    name: 'Azotea Piscina', desc: 'Azotea nocturna con piscina, palmeras, paneles solares y una terraza elevada.',
+    w: 33, l: 46, lanes: [6.5, 16.5, 26.5],
+    theme: {
+      floor: ['#2a2f38', '#6a7a8a'], bg: 0x0a1020,
+      1: ['#2a3040', '#5a6a80'], 2: ['#3a4050', '#7a8aa0'], 3: ['#4a4a4a', '#9a9a9a'], 4: ['#0f2a5a', '#3f7fdf'],
+      5: ['#c8c8c8', '#ffffff'], 6: ['#5a3a1a', '#8a6a3a'], 7: ['#1a8fd0', '#7fe0ff'], 8: ['#d03a8a', '#ff8ad0'], glow: [7, 8],
+      strip: 0xff8ad0, preview: ['#2a2f38', '#5a6a80', '#7a8aa0', '#9a9a9a', '#3f7fdf', '#ffffff', '#8a6a3a', '#7fe0ff', '#ff8ad0'],
+    },
+    build(set, m) {
+      const R = rot(set, m);
+      // pool in the centre with a low rim (gaps to walk round)
+      R(11, 21, 19, 22, 0.05, 7); R(10, 14, 18, 18, 0.3, 5); R(18, 22, 18, 18, 0.3, 5); R(10, 10, 19, 21, 0.3, 5);
+      // palms in planters
+      for (const [x, z] of [[8, 17], [24, 17], [8, 21], [4, 12], [28, 13]]) { R(x, x, z, z, 3.4, 6); }
+      // solar panel rows
+      R(3, 8, 7, 7, 1, 4); R(3, 8, 9, 9, 1, 4); R(24, 29, 7, 7, 1, 4); R(24, 29, 9, 9, 1, 4);
+      // raised terrace (upper floor, h 2) with glass rails and stairs down to the pool
+      R(13, 19, 8, 11, 2, 2); R(13, 13, 8, 11, 2.9, 7); R(19, 19, 8, 11, 2.9, 7);
+      R(15, 17, 12, 12, 1.5, 5); R(15, 17, 13, 13, 1, 5); R(15, 17, 14, 14, 0.5, 5);
+      // AC units, loungers, neon bar
+      R(27, 29, 14, 15, 1.5, 3); R(2, 3, 15, 16, 1.5, 3);
+      R(12, 13, 16, 16, 0.6, 3); R(19, 20, 16, 16, 0.6, 3);
+      R(1, 3, 20, 21, 1.2, 8);
+    },
+  },
+  piscina: {
+    name: 'Piscina Cubierta', desc: 'Natatorio de azulejos blancos: piscina olímpica, torre de saltos, gradas y vestuarios.',
+    w: 33, l: 46, lanes: [6.5, 16.5, 26.5],
+    theme: {
+      floor: ['#c8d0d8', '#ffffff'], bg: 0x1a2430,
+      1: ['#b8c4d0', '#e8f0f8'], 2: ['#c8d0d8', '#ffffff'], 3: ['#5a7a9a', '#8ab0d0'], 4: ['#e0e4e8', '#ffffff'],
+      5: ['#b0bcc8', '#e0e8f0'], 6: ['#3a4a5a', '#6a7a8a'], 7: ['#2a9ad8', '#9fe8ff'], 8: ['#ff3a3a', '#ffd0d0'], glow: [7, 8],
+      strip: 0x9fe8ff, preview: ['#c8d0d8', '#e8f0f8', '#ffffff', '#8ab0d0', '#ffffff', '#e0e8f0', '#6a7a8a', '#9fe8ff', '#ff3a3a'],
+    },
+    build(set, m) {
+      const R = rot(set, m);
+      // olympic pool with lane ropes
+      R(9, 23, 16, 22, 0.05, 7); for (const x of [12, 16, 20]) R(x, x, 16, 22, 0.1, 8);
+      // diving tower (h 2) with stairs on both sides and a board over the pool
+      R(14, 18, 12, 13, 2, 4); R(13, 13, 12, 13, 1.5, 5); R(12, 12, 12, 13, 1, 5); R(11, 11, 12, 13, 0.5, 5);
+      R(19, 19, 12, 13, 1.5, 5); R(20, 20, 12, 13, 1, 5); R(21, 21, 12, 13, 0.5, 5); R(16, 16, 14, 15, 2, 4);
+      // lockers + benches
+      R(2, 6, 7, 7, 2.6, 2); R(2, 6, 10, 10, 2.6, 2); R(26, 30, 8, 8, 2.6, 2); R(26, 30, 11, 11, 2.6, 2);
+      R(10, 12, 8, 8, 0.6, 3); R(20, 22, 8, 8, 0.6, 3);
+      // columns and stepped bleachers (upper rows h 1.5)
+      R(8, 8, 15, 15, 4, 2); R(24, 24, 15, 15, 4, 2);
+      R(3, 3, 14, 22, 0.5, 5); R(2, 2, 14, 22, 1, 5); R(1, 1, 14, 22, 1.5, 5);
+      R(29, 29, 14, 22, 0.5, 5); R(30, 30, 14, 22, 1, 5); R(31, 31, 14, 22, 1.5, 5);
+      R(5, 6, 19, 19, 1, 6); R(26, 27, 19, 19, 1, 6); // lifeguard chairs / equipment carts
+    },
+  },
+  paintball: {
+    name: 'Arena Paintball', desc: 'Nave industrial: casetas de madera de dos pisos, palés, inflables y una furgoneta.',
+    w: 33, l: 46, lanes: [6.5, 16.5, 26.5],
+    theme: {
+      floor: ['#3a3a3a', '#5a5a5a'], bg: 0x141414,
+      1: ['#2a2a2a', '#4a4a4a'], 2: ['#a07a4a', '#d0a870'], 3: ['#7a5a30', '#a88050'], 4: ['#1a1a1a', '#3a3a3a'],
+      5: ['#8a6a40', '#b89060'], 6: ['#d8d8d8', '#ffffff'], 7: ['#2a8aa8', '#9fe8ff'], 8: ['#ff3df2', '#ffd84d'], glow: [7, 8],
+      strip: 0xffd84d, preview: ['#3a3a3a', '#4a4a4a', '#d0a870', '#a88050', '#3a3a3a', '#b89060', '#ffffff', '#9fe8ff', '#ff3df2'],
+    },
+    build(set, m) {
+      const R = rot(set, m), WALL = 4, WIN = 2.9, SILL = 1;
+      // shack A (x 3..10, z 8..14): plywood, upstairs floor (h 2) with windows over the field
+      R(3, 10, 8, 8, WALL, 2); R(3, 3, 8, 14, WALL, 2); R(10, 10, 8, 14, WALL, 2); R(3, 10, 14, 14, WALL, 2);
+      R(6, 7, 14, 14, 0, 0); R(10, 10, 12, 13, 0, 0); R(4, 5, 14, 14, WIN, 7); R(8, 9, 14, 14, SILL, 7);
+      R(4, 6, 9, 12, 2, 4); R(7, 7, 10, 10, 1.5, 5); R(8, 8, 10, 10, 1, 5); R(9, 9, 10, 10, 0.5, 5);
+      // shack B (x 22..29, z 10..16)
+      R(22, 29, 10, 10, WALL, 2); R(22, 22, 10, 16, WALL, 2); R(29, 29, 10, 16, WALL, 2); R(22, 29, 16, 16, WALL, 2);
+      R(25, 26, 16, 16, 0, 0); R(22, 22, 12, 13, 0, 0); R(27, 28, 16, 16, WIN, 7); R(23, 24, 16, 16, SILL, 7);
+      R(26, 28, 11, 14, 2, 4); R(25, 25, 12, 12, 1.5, 5); R(24, 24, 12, 12, 1, 5); R(23, 23, 12, 12, 0.5, 5);
+      // pallets (low / stacked), tyre walls, inflatable bunkers
+      for (const [x, z, h] of [[12, 17, 0.6], [13, 17, 1.2], [20, 15, 1.2], [5, 19, 0.6], [6, 19, 1.2], [27, 20, 1.2], [15, 9, 0.6], [17, 9, 1.2], [14, 13, 1.2]]) R(x, x, z, z, h, 3);
+      R(1, 3, 17, 17, 1, 4); R(29, 31, 19, 19, 1, 4);
+      for (const [x, z] of [[10, 20], [22, 19], [16, 15], [11, 5]]) R(x, x, z, z, 1.4, 8);
+      // delivery van across the centre (z 22..23 maps onto itself)
+      R(14, 18, 22, 22, 2.2, 6); R(14, 14, 22, 22, 2.2, 7); R(18, 18, 22, 22, 2.2, 7);
+    },
+  },
 };
 export const DEFAULT_MAP = 'carriles';
+export const V2_MAPS = ['templo', 'nuclear', 'azotea', 'piscina', 'paintball'];
+// 180° rotational symmetry helper: every block at (x,z) is also written at (W-1-x, L-1-z).
+function rot(set, m) { const W = m.w, L = m.l; return (x0, x1, z0, z1, hh, k) => { for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) { set(x, z, hh, k); set(W - 1 - x, L - 1 - z, hh, k); } }; }
 
 // Non-playable hub maps (not in votes / map pickers).
 // HQ: walkable third-person base. Spawn helipad (south), weapon bench (west),

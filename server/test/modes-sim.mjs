@@ -6,7 +6,7 @@ import { MODES } from '../../config.js';
 import { initMatch, newPlayer, beginMatch, tickMatch, handleMsg } from '../../match.js';
 let T = 1_000_000; const realNow = Date.now; Date.now = () => T;
 const modes = process.argv[2] && process.argv[2] !== 'all' ? [process.argv[2]] : Object.keys(MODES);
-const maps = process.argv[3] && process.argv[3] !== 'all' ? [process.argv[3]] : Object.keys(MAPS);
+const maps = process.argv[3] === 'v2' ? ['templo', 'nuclear', 'azotea', 'piscina', 'paintball'] : process.argv[3] && process.argv[3] !== 'all' ? process.argv[3].split(',') : Object.keys(MAPS);
 const SIM = +(process.argv[4] || 240);
 const out = [];
 for (const mode of modes) for (const mapId of maps) {

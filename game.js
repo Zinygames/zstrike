@@ -1,7 +1,7 @@
 // ZStrike - client (single-player vs bots + online deathmatch client)
 import * as THREE from 'three';
 import { WEAPONS, SHOP_ITEMS, CLUSTER, SERVER_URL, PUBLIC_SERVER_URL, PERKS, STREAKS, MODES, DEFAULT_LOADOUT, CLASS_NAMES, weaponIndex } from './config.js';
-import { MAPS, DEFAULT_MAP, createMap, rayHitPlayer, HQ_PORTALS, HQ_BENCH, HQ_RANGE, HQ_SPAWN } from './map.js';
+import { MAPS, DEFAULT_MAP, createMap, rayHitPlayer, HQ_PORTALS, HQ_BENCH, HQ_RANGE, HQ_SPAWN, V2_MAPS } from './map.js';
 import { weaponIcon } from './voxguns.js';
 import { flowField, flowDir } from './ai.js';
 import { initMatch, newPlayer, beginMatch, tickMatch, handleMsg as matchHandle, board as matchBoard, setLoadout as matchLoadout } from './match.js';
@@ -787,7 +787,7 @@ const online = {
     if (this.mode) { buildMinimap(); if (m.obj) syncObjectives(m.obj); }
     $('mp-timer').classList.remove('hidden'); $('scoreboard').classList.remove('hidden'); $('btn-shop').classList.add('hidden');
     $('online').classList.add('hidden'); $('online').classList.remove('in-lobby'); showGame();
-    banner(this.mode ? MODES[this.mode].name + (this.teamMode ? (m.team === 0 ? ' · EQUIPO CIAN' : ' · EQUIPO MAGENTA') : '') : (MAPS[m.map]?.name || '').toUpperCase() + ' · ¡A PELEAR!', 2.5);
+    banner(this.mode ? MODES[this.mode].name + (this.teamMode ? ' · EQUIPO AZUL' : '') : (MAPS[m.map]?.name || '').toUpperCase() + ' · ¡A PELEAR!', 2.5);
     $('mp-timer').classList.toggle('hidden', !!this.mode); $('scoreboard').classList.toggle('hidden', !!this.mode);
     document.body.classList.toggle('v2match', !!this.mode);
   },
@@ -1219,7 +1219,7 @@ function updateHQ(dt) {
 // Game modes launched from the HQ portals. VS BOTS runs the same shared simulation as the server (match.js) in the page.
 const MODE_MAPS = { tdm: null, ffa: null, dom: null, snd: null, ctf: ['barrio'] };
 function modeMapPool(m) { const all = Object.keys(MAPS); const pref = (MODE_MAPS[m] || []).concat(NEW_MAP_IDS.filter((id) => MAPS[id])); return (m === 'ctf' ? pref : all).filter((id) => MAPS[id]); }
-let NEW_MAP_IDS = [];
+const NEW_MAP_IDS = V2_MAPS;
 let lastModeLaunch = null;
 function loadoutMsg() { const lo = curLoadout(); return { primary: lo.primary, secondary: lo.secondary, perks: lo.perks, lethal: lo.lethal, tactical: lo.tactical }; }
 function startMode(m, net, mapPick) {
@@ -1473,7 +1473,28 @@ function updateV2Hud(dt) {
   if (o?.c) strip = o.c.map(([team, , , carrier]) => `<span class="of" style="--c:#${objColor(team).toString(16).padStart(6, '0')}">⚑${carrier ? '!' : ''}</span>`).join('');
   if (o?.s) strip = `<span class="of" style="--c:#ffa23d">R${o.r} · ${o.w.join('-')}</span>` + (o.b ? `<span class="of bomb">💣 ${o.b[2]}s</span>` : '') + (o.pl > 0 ? `<span class="of">PLANTANDO ${Math.round(o.pl * 100)}%</span>` : '') + (o.df > 0 ? `<span class="of">DESACTIVANDO ${Math.round(o.df * 100)}%</span>` : '');
   $('mh-obj').innerHTML = strip;
+  drawObjMarks(o);
   // local host: advance the shared simulation at 20 Hz
+}
+// on-screen objective markers (letter + distance), clamped to the screen edge
+const _om = new THREE.Vector3();
+function drawObjMarks(o) {
+  const el = $('objmarks'); const items = [];
+  const hex = (c) => '#' + c.toString(16).padStart(6, '0');
+  if (o?.f) for (const [id, x, z, owner, prog] of o.f) items.push({ x, z, t: id, c: hex(objColor(owner)), p: prog });
+  if (o?.c) for (const [team, x, z, carrier] of o.c) { if (carrier === online.id) continue; const r = carrier && online.remotes.get(carrier); items.push({ x: r ? r.mesh.position.x : x, z: r ? r.mesh.position.z : z, t: '⚑', c: hex(objColor(team)) }); }
+  if (o?.s) { if (o.b) items.push({ x: o.b[0], z: o.b[1], t: '💣', c: '#ff3b3b' }); else for (const [id, x, z] of o.s) items.push({ x, z, t: id, c: '#ffa23d' }); }
+  let h = '';
+  const W = innerWidth, H = innerHeight;
+  for (const it of items) {
+    _om.set(it.x, (map.heights[Math.floor(it.x) + Math.floor(it.z) * map.w] || 0) + 2.6, it.z).project(camera);
+    let sx = (_om.x + 1) / 2 * W, sy = (1 - _om.y) / 2 * H; const behind = _om.z > 1;
+    if (behind) { sx = W - sx; sy = H - 40; }
+    sx = Math.max(24, Math.min(W - 24, sx)); sy = Math.max(30, Math.min(H - 40, sy));
+    const d = Math.round(Math.hypot(it.x - player.pos.x, it.z - player.pos.z));
+    h += `<div class="om" style="left:${sx}px;top:${sy}px;--c:${it.c}"><b>${it.t}</b><small>${d}m</small></div>`;
+  }
+  el.innerHTML = h;
 }
 function tickLocal(dt) {
   if (!online.local) return;
