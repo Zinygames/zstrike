@@ -559,7 +559,7 @@ function setupSurv(L) {
   const m = L.map, free = m.freeCells().filter(([x, z]) => Math.hypot(x - m.w / 2, z - m.l / 2) < 13.5);
   L.surv = { wave: L.survStart - 1, phase: 'break', nextAt: Date.now() + SURV.firstBreakMs, toSpawn: 0, queue: [], spawnAt: 0, zid: 0, pid: 0,
     gates: m.gates || [[m.w / 2, 2.5], [m.w / 2, m.l - 2.5]], box: m.box || { x: m.w / 2, z: m.l / 2 + 6 }, free, pickups: [], lures: [], boxBusy: new Map() };
-  for (const p of L.players.values()) { p.score = 0; p.nades.mono = 0; }
+  for (const p of L.players.values()) { p.score = SURV.startPts || 0; p.nades.mono = 0; }
   refillPickups(L);
 }
 function refillPickups(L) {
@@ -628,7 +628,7 @@ function giveWeapon(L, p, w) {
 }
 function openBox(L, p) {
   const S = L.surv, now = Date.now();
-  if (!p.alive || L.state !== 'playing' || Math.hypot(p.x - S.box.x, p.z - S.box.z) > 2.6) return;
+  if (!p.alive || L.state !== 'playing' || Math.hypot(p.x - S.box.x, p.z - S.box.z) > SURV.boxRange + 0.4) return;
   if ((S.boxBusy.get(p.id) || 0) > now || (p.score || 0) < SURV.boxCost) return L.sendTo(p, { t: 'boxNo', need: SURV.boxCost, have: Math.round(p.score || 0) });
   p.score -= SURV.boxCost; S.boxBusy.set(p.id, now + 2600);
   const mono = Math.random() < 0.12, w = mono ? -1 : rnd(BOX_POOL);              // ... plus the Mono Bomba
@@ -641,7 +641,7 @@ function openBox(L, p) {
 }
 function pickUp(L, p, id) {
   const S = L.surv, k = S.pickups.find((x) => x.id === id);
-  if (!k || !p.alive || Math.hypot(p.x - k.x, p.z - k.z) > 2.0) return;
+  if (!k || !p.alive || Math.hypot(p.x - k.x, p.z - k.z) > SURV.pickRange + 0.4) return;
   const { old } = giveWeapon(L, p, k.w);
   if (old >= 0 && !WEAPONS[old].legacy) k.w = old; else S.pickups.splice(S.pickups.indexOf(k), 1); // swap: your old gun stays on the floor
   L.sendTo(p, { t: 'boxGot', w: p.loadout[WEAPONS[k.w]?.slot === 'secondary' ? 'secondary' : 'primary'], pick: 1 });

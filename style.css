@@ -377,3 +377,4 @@ body.touch #sv-pts { left:calc(176px + env(safe-area-inset-left)); bottom:34px; 
 #gameover.victory h2 { color:#ffd84d; text-shadow:0 0 12px #ffb347; }
 .champ { display:inline-block; font-size:26px; font-weight:900; color:#ffd84d; letter-spacing:2px; animation:champ 1.2s ease-in-out infinite alternate; }
 @keyframes champ { from { transform:scale(1); text-shadow:0 0 6px #ffb347; } to { transform:scale(1.08); text-shadow:0 0 22px #ffd84d; } }
+#btn-use.locked { opacity:.55; border-color:#999; }

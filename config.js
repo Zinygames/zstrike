@@ -143,7 +143,7 @@ export const ZTYPES = {
   brute: { name: 'Bruto', hp: 380, sp: 1.7, dmg: 30, pts: 200, scale: 1.35 },
   boss: { name: 'Gladiador Zombi', hp: 2500, sp: 2.4, dmg: 45, pts: 1500, scale: 2.0 },
 };
-export const SURV = { waves: 150, boxCost: 950, breakMs: 9000, firstBreakMs: 6000, maxAlive: 22, monoLureMs: 5000, monoMax: 3, pickups: 8 };
+export const SURV = { waves: 150, boxCost: 750, startPts: 500, boxRange: 3.0, pickRange: 2.6, breakMs: 9000, firstBreakMs: 6000, maxAlive: 22, monoLureMs: 5000, monoMax: 3, pickups: 8 };
 // Mono Bomba: original wind-up cymbal-monkey toy. Throw it, zombies chase the clanging for 5 s, then it explodes.
 export const MONO = { id: 'mono', name: 'Mono Bomba', desc: 'Juguete de platillos: atrae a los zombis 5 s y explota.', radius: 6, damage: 650 };
 

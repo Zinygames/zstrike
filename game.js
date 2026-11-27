@@ -295,6 +295,7 @@ addEventListener('keydown', (e) => {
 });
 $('btn-nade').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); throwNade(curLoadout().lethal || 'frag'); });
 $('btn-use').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); survInteract(); });
+$('btn-use').addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); survInteract(); }); // fallback for browsers without pointer events
 $('btn-mono').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); throwMono(); });
 $('btn-flash').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); throwNade(curLoadout().tactical || 'flash'); });
 addEventListener('keyup', (e) => { input.keys[e.code] = false; });
@@ -1693,12 +1694,14 @@ function updateSurv(dt) {
   let pr = null;
   if (player.alive && online.sv) {
     const bx = SV.box?.position;
-    if (bx && Math.hypot(player.pos.x - bx.x, player.pos.z - bx.z) < 2.4) pr = { kind: 'box', text: `CAJA MISTERIOSA · ${SURV.boxCost} pts<small>${SV.myPts >= SURV.boxCost ? 'arma al azar (¡o la Mono Bomba!)' : 'te faltan ' + (SURV.boxCost - SV.myPts) + ' pts'}</small>` };
-    else for (const [id, k] of SV.pickups) if (Math.hypot(player.pos.x - k.x, player.pos.z - k.z) < 1.8) { pr = { kind: 'pick', id, text: `TOMAR ${WEAPONS[k.w].name.toUpperCase()}<small>${CLASS_NAMES[WEAPONS[k.w].cls] || ''}</small>` }; break; }
+    const dBox = bx ? Math.hypot(player.pos.x - bx.x, player.pos.z - bx.z) : 99;
+    let best = null, bd = SURV.pickRange; for (const [id, k] of SV.pickups) { const d = Math.hypot(player.pos.x - k.x, player.pos.z - k.z); if (d < bd) { bd = d; best = [id, k]; } }
+    if (dBox < SURV.boxRange && !(best && bd < dBox)) { const ok = SV.myPts >= SURV.boxCost; pr = { kind: 'box', ok, text: `CAJA MISTERIOSA · ${SURV.boxCost} pts<small>${ok ? 'arma al azar (¡o la Mono Bomba!)' : '🔒 te faltan ' + (SURV.boxCost - SV.myPts) + ' pts · mata zombis para ganar puntos'}</small>` }; }
+    else if (best) { const [id, k] = best; pr = { kind: 'pick', id, text: `TOMAR ${WEAPONS[k.w].name.toUpperCase()}<small>${CLASS_NAMES[WEAPONS[k.w].cls] || ''}</small>` }; }
   }
   SV.prompt = pr;
   $('use-prompt').innerHTML = pr ? pr.text + `<small>${IS_TOUCH ? 'toca ✋' : 'pulsa E'}</small>` : ''; $('use-prompt').classList.toggle('hidden', !pr);
-  $('btn-use').classList.toggle('hidden', !(pr && IS_TOUCH));
+  $('btn-use').classList.toggle('hidden', !(pr && IS_TOUCH)); $('btn-use').classList.toggle('locked', !!(pr && pr.kind === 'box' && !pr.ok));
   // HUD: wave / zombies / points / boss
   const sv = online.sv;
   if (sv) {
@@ -1712,7 +1715,9 @@ function updateSurv(dt) {
 }
 function survInteract() {
   const pr = SV.prompt; if (!pr || !survActive()) return;
-  if (pr.kind === 'box') online.send({ t: 'box' }); else online.send({ t: 'pick', id: pr.id });
+  const now = performance.now(); if (now - (SV.lastUse || 0) < 250) return; SV.lastUse = now; // pointerdown + click fallback fire once
+  if (pr.kind === 'box') { if (!pr.ok) { banner(`🔒 NECESITAS ${SURV.boxCost} PUNTOS (tienes ${SV.myPts})`, 1.6); return; } online.send({ t: 'box' }); }
+  else online.send({ t: 'pick', id: pr.id });
 }
 function throwMono() { if (survActive() && (online.survLo?.mono || 0) > 0) { throwNade('mono'); online.survLo.mono--; } }
 function onSurvLo(m) {

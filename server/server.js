@@ -306,7 +306,7 @@ wss.on('connection', (ws) => {
         break;
       }
       // gameplay messages: movement check, shots, reloads, scorestreaks, grenades... (shared match module decides)
-      case 'state': case 'shot': case 'reload': case 'streak': case 'nade': case 'fall': case 'loadout':
+      case 'state': case 'shot': case 'reload': case 'streak': case 'nade': case 'fall': case 'loadout': case 'box': case 'pick': // box/pick = Survive interact (✋ / E)
         if (L && p && L.state === 'playing') handleMsg(L, p, m);
         else if (L && p && m.t === 'loadout') setLoadout(L, p, m.lo);
         break;
