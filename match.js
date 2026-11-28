@@ -2,7 +2,7 @@
 // Runs on the Node server for online lobbies AND in the browser for offline "VS BOTS" matches,
 // so hits, damage, scorestreaks, perks and objectives follow exactly the same rules.
 // The host provides L.bcast(msg) (to everyone) and L.sendTo(player, msg).
-import { WEAPONS, MODES, STREAKS, PERK_IDS, ZTYPES, SURV, MONO } from './config.js';
+import { WEAPONS, MODES, STREAKS, PERK_IDS, ZTYPES, SURV, MONO, SPAWN_PROT_MS } from './config.js';
 import { rayHitPlayer } from './map.js';
 import { flowField, flowDir } from './ai.js';
 
@@ -111,12 +111,12 @@ function placeAtSpawn(L, p, first) {
   const [x0, z0] = pickSpawn(L, p);
   const x = x0 + (first && !L.legacy ? (Math.random() - 0.5) * 0.6 : 0), z = z0;
   Object.assign(p, { x, y: L.map.groundUnder(x, z, 0.3), z, hp: MAX_HP, alive: true, lastStateAt: Date.now(), yaw: z > L.map.l / 2 ? 0 : Math.PI,
-    ammo: {}, reloadUntil: {}, secondUsed: false, flashedUntil: 0 });
+    ammo: {}, reloadUntil: {}, secondUsed: false, flashedUntil: 0, spawnProtUntil: Date.now() + SPAWN_PROT_MS });
   p.nades = { frag: hasPerk(L, p, 'bolsillo') ? 2 : 1, flash: 1, mono: p.nades?.mono || 0 };
 }
 function respawn(L, p) {
   placeAtSpawn(L, p, false);
-  L.bcast({ t: 'respawn', id: p.id, x: p.x, z: p.z });
+  L.bcast({ t: 'respawn', id: p.id, x: p.x, z: p.z, prot: SPAWN_PROT_MS });
 }
 export function board(L) { return [...L.players.values()].filter((p) => !p.zombie).map((p) => ({ id: p.id, name: p.name, kills: p.kills, deaths: p.deaths, bot: p.bot, team: p.team, caps: p.caps, score: Math.round(p.score || 0) })); }
 
@@ -200,6 +200,7 @@ function startReload(L, p, wIdx, now = Date.now()) {
 }
 export function damage(L, by, t, amount, head, wIdx = 0, kind = 'gun') {
   if (!t.alive || L.state !== 'playing') return;
+  if (by !== t && t.spawnProtUntil && Date.now() < t.spawnProtUntil) return; // spawn protection
   if (by !== t && !isEnemy(L, by, t)) return;                       // no friendly fire
   if (kind === 'exp' && hasPerk(L, t, 'blindaje')) amount *= 0.5;    // Blindaje Térmico
   if (t.hp - amount <= 0 && t.hp > 1 && hasPerk(L, t, 'segunda') && !t.secondUsed && by !== t) { t.secondUsed = true; amount = t.hp - 1; L.sendTo(t, { t: 'second' }); }

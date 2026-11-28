@@ -18,6 +18,7 @@ export const ALLOW_MAINNET = false;
 export const RPC_URL = 'https://api.devnet.solana.com';
 
 export const GAME_NAME = 'ZStrike';
+export const SPAWN_PROT_MS = 2500; // brief invulnerability after spawn / respawn
 
 // Weapons. `unlock` = shop item id needed (null = free).
 // Indices are part of the online protocol: 0-2 are the original (v1) shop weapons and

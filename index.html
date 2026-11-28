@@ -25,15 +25,19 @@
 <!-- HUD -->
 <div id="hud" class="hidden">
   <div id="hud-left">
-    <div class="bar"><div id="hp-fill" class="fill hp"></div><span id="hp-text">100</span></div>
-    <div class="bar small" id="armor-bar"><div class="fill armor" style="width:100%"></div><span>ARMADURA</span></div>
+    <div class="bar hp-bar"><div id="hp-fill" class="fill hp"></div><span id="hp-text">100%</span></div>
+    <div class="bar small" id="armor-bar"><div id="armor-fill" class="fill armor" style="width:0%"></div><span id="armor-text">0%</span></div>
   </div>
   <div id="hud-center"><div id="wave-text">OLEADA 1</div><div id="weapon-text">Pistola Neon</div></div>
   <div id="hud-right">
     <div id="score-text">0 pts</div>
-    <div id="coins-text">🪙 0</div>
-    <button id="btn-shop" class="pill">TIENDA</button>
+    <div id="top-curr">
+      <div id="coins-text">🪙 0</div>
+    </div>
+    <button id="btn-shop" class="pill armory">ARMERÍA</button>
   </div>
+  <div id="status-fx" class="hidden"><b id="status-name">PROTECCIÓN</b><div class="status-bar"><i id="status-fill"></i></div></div>
+  <div id="hotbar"></div>
   <div id="crosshair"></div>
   <div id="hit-marker"></div>
   <div id="dmg-flash"></div>
@@ -46,9 +50,13 @@
   <div id="ammo"><b id="ammo-n">30</b><span id="ammo-m">/30</span><div id="ammo-w"></div></div>
   <div id="mm-wrap" class="v2only"><canvas id="minimap" width="132" height="132"></canvas><div id="mm-lv"><b id="mm-lvn">LV 1</b><div class="mm-xp"><i id="mm-xpf"></i></div></div></div>
   <div id="mhud" class="v2only">
-    <div class="mh-row"><span id="mh-time">0:00</span><div id="mh-obj"></div></div>
-    <div class="mh-row sc"><b id="mh-us">0</b><div class="mh-bar us"><i id="mh-us-bar"></i></div></div>
-    <div class="mh-row sc"><b id="mh-them">0</b><div class="mh-bar them"><i id="mh-them-bar"></i></div></div>
+    <div class="mh-board">
+      <div class="mh-team us"><b id="mh-us">0</b></div>
+      <div class="mh-clock"><span id="mh-time">0:00</span></div>
+      <div class="mh-team them"><b id="mh-them">0</b></div>
+    </div>
+    <div id="mh-obj"></div>
+    <i id="mh-us-bar" hidden></i><i id="mh-them-bar" hidden></i>
   </div>
   <div id="streaks" class="v2only"></div>
   <div id="medal"></div>
@@ -64,13 +72,13 @@
 <div id="touch" class="hidden">
   <div id="joy-zone"><div id="joy-base"><div id="joy-knob"></div></div></div>
   <div id="look-zone"></div>
-  <button id="btn-fire" class="tbtn big">🔫</button>
-  <button id="btn-jump" class="tbtn">⤒</button>
-  <button id="btn-switch" class="tbtn">⇄</button>
-  <button id="btn-ads" class="tbtn">◎</button>
-  <button id="btn-reload" class="tbtn">↻</button>
-  <button id="btn-nade" class="tbtn v2only">💣</button>
-  <button id="btn-flash" class="tbtn v2only">✺</button>
+  <button id="btn-fire" class="tbtn big" aria-label="Disparar"><svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="11" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="16" cy="16" r="5" fill="currentColor"/></svg></button>
+  <button id="btn-jump" class="tbtn" aria-label="Saltar"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M8 20 L16 10 L24 20" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+  <button id="btn-switch" class="tbtn" aria-label="Cambiar arma">⇄</button>
+  <button id="btn-ads" class="tbtn" aria-label="Apuntar"><svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="8" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M16 4v5M16 23v5M4 16h5M23 16h5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
+  <button id="btn-reload" class="tbtn" aria-label="Recargar"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M23 10a9 9 0 1 1-2.2-3.2" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M23 4v7h-7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+  <button id="btn-nade" class="tbtn v2only" aria-label="Granada"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="13" y="5" width="6" height="4" rx="1" fill="currentColor"/><path d="M10 11h12l-1 14H11z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M16 5V3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+  <button id="btn-flash" class="tbtn v2only" aria-label="Aturdir"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 4 L18 13 H25 L19.5 18 L22 28 L16 22 L10 28 L12.5 18 L7 13 H14 Z" fill="currentColor"/></svg></button>
   <button id="btn-use" class="tbtn hidden">✋</button>
   <button id="btn-mono" class="tbtn hidden">🐒</button>
 </div>
@@ -122,6 +130,8 @@
       <label class="hm-field">NOMBRE DE JUGADOR<input id="set-name" maxlength="16" autocomplete="off" spellcheck="false"></label>
       <label class="hm-field">SENSIBILIDAD <span id="set-sens-val"></span><input id="set-sens" type="range" min="0.4" max="2.5" step="0.1"></label>
       <label class="hm-field">GRÁFICOS<select id="set-quality"><option value="alta">Alta</option><option value="baja">Baja (más fluido)</option></select></label>
+      <label class="hm-field chk"><input type="checkbox" id="set-autoaim"> AUTO APUNTE</label>
+      <p class="hm-small">Al disparar, la mira se acerca suavemente al enemigo o zombi más cercano (cono de unos 18°). En línea solo gira tu vista: el servidor sigue comprobando cada disparo. En el teléfono viene activado.</p>
       <p class="hm-small" id="controls-hint"></p>
     </div>
   </section>
