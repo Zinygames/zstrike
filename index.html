@@ -37,7 +37,14 @@
     <button id="btn-shop" class="pill armory">ARMERÍA</button>
   </div>
   <div id="status-fx" class="hidden"><b id="status-name">PROTECCIÓN</b><div class="status-bar"><i id="status-fill"></i></div></div>
-  <div id="hotbar"></div>
+  <div id="hot-wrap">
+    <div id="hotbar"></div>
+    <div id="utilbar">
+      <button type="button" id="util-nade" class="uslot hidden" data-kind="frag" aria-label="Granada"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="13" y="5" width="6" height="4" rx="1" fill="currentColor"/><path d="M10 11h12l-1 14H11z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M16 5V3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>0</span></button>
+      <button type="button" id="util-flash" class="uslot hidden" data-kind="flash" aria-label="Aturdir"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 4 L18 13 H25 L19.5 18 L22 28 L16 22 L10 28 L12.5 18 L7 13 H14 Z" fill="currentColor"/></svg><span>0</span></button>
+      <button type="button" id="util-mono" class="uslot hidden" data-kind="mono" aria-label="Mono Bomba">🐒<span>0</span></button>
+    </div>
+  </div>
   <div id="crosshair"></div>
   <div id="hit-marker"></div>
   <div id="dmg-flash"></div>

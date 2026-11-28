@@ -7,7 +7,7 @@ html,body { margin:0; height:100%; overflow:hidden; background:var(--bg); color:
 button { font-family:inherit; cursor:pointer; }
 
 /* HUD */
-#hud { position:fixed; inset:0; pointer-events:none; }
+#hud { position:fixed; inset:0; pointer-events:none; z-index:6; }
 #hud-left { position:absolute; left:calc(12px + env(safe-area-inset-left)); top:10px; width:180px; }
 .bar { position:relative; height:20px; border:2px solid #fff; background:rgba(0,0,0,.5); margin-bottom:6px; image-rendering:pixelated; }
 .bar.small { height:12px; font-size:9px; }
@@ -32,7 +32,7 @@ button { font-family:inherit; cursor:pointer; }
 #banner.on { opacity:1; }
 
 /* Touch */
-#touch { position:fixed; inset:0; }
+#touch { position:fixed; inset:0; z-index:5; }
 #joy-zone { position:absolute; left:0; bottom:0; width:40%; height:70%; }
 #look-zone { position:absolute; right:0; top:0; width:60%; height:100%; }
 #joy-base { position:absolute; left:calc(40px + env(safe-area-inset-left)); bottom:30px; width:120px; height:120px; border-radius:50%;
@@ -416,8 +416,16 @@ body.pov #coins-text { font-size: 16px; margin: 0; }
 #top-curr { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
 #btn-shop.armory { pointer-events: auto; background: linear-gradient(180deg, #e8b84a, #b8860b); color: #1a1000; border: 2px solid #7a5a10; font-weight: 900; letter-spacing: 1px; padding: 3px 10px; font-size: 12px; }
 #btn-shop.armory:active { filter: brightness(1.1); }
-#hotbar { position: absolute; left: 42%; bottom: calc(6px + env(safe-area-inset-bottom)); transform: translateX(-50%); display: none; gap: 3px; z-index: 8; pointer-events: auto; }
-body.pov #hotbar { display: flex; }
+#hot-wrap { position: absolute; left: 50%; bottom: calc(6px + env(safe-area-inset-bottom)); transform: translateX(-50%); display: none; align-items: flex-end; gap: 6px; z-index: 8; pointer-events: auto; }
+body.pov #hot-wrap { display: flex; }
+#hotbar { display: flex; gap: 3px; pointer-events: auto; }
+#utilbar { display: flex; gap: 3px; padding-left: 6px; margin-left: 2px; border-left: 2px solid rgba(255,255,255,.28); pointer-events: auto; }
+.uslot { width: 44px; height: 46px; border: 2px solid rgba(255,180,80,.5); background: rgba(0,0,0,.55); border-radius: 4px; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding: 2px 1px; position: relative; }
+.uslot svg { width: 22px; height: 22px; pointer-events: none; }
+.uslot span { font-size: 9px; font-weight: 800; pointer-events: none; }
+#util-mono { border-color: rgba(255,60,60,.7); font-size: 18px; }
+.uslot.empty, .uslot.hidden { display: none; }
+.uslot[data-n]::after { content: none; }
 .slot { width: 52px; height: 50px; border: 2px solid rgba(255,255,255,.28); background: rgba(0,0,0,.55); padding: 2px 1px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; border-radius: 4px; color: #fff; pointer-events: auto; }
 .slot img { width: 46px; height: 22px; object-fit: contain; image-rendering: pixelated; pointer-events: none; }
 .slot span { font-size: 9px; font-weight: 800; line-height: 1; pointer-events: none; }
@@ -427,9 +435,10 @@ body.pov #hotbar { display: flex; }
 @media (max-width: 740px) {
   .slot { width: 42px; height: 44px; }
   .slot img { width: 38px; height: 18px; }
-  body.pov #hotbar { left: 40%; }
+  body.pov #hot-wrap { left: 50%; }
+  .uslot { width: 38px; height: 42px; }
 }
-@media (min-width: 900px) { body.pov #hotbar { left: 50%; } }
+@media (min-width: 900px) { body.pov #hot-wrap { left: 50%; } }
 body.pov #ammo { display: none !important; }
 body.pov #weapon-text { display: none; }
 body.pov #btn-switch { display: none !important; }
@@ -464,3 +473,17 @@ body.pov #btn-mono { right: calc(206px + env(safe-area-inset-right)); bottom: 12
   body.pov #btn-use { right: calc(206px + env(safe-area-inset-right)); bottom: 128px; }
   body.pov #btn-mono { right: calc(206px + env(safe-area-inset-right)); bottom: 76px; }
 }
+
+/* Touch: only jump + fire in the button cluster (grenades live on the hotbar) */
+body.touch #touch #btn-ads,
+body.touch #touch #btn-reload,
+body.touch #touch #btn-nade,
+body.touch #touch #btn-flash,
+body.touch #touch #btn-switch,
+body.touch #touch #btn-mono,
+body.touch.v2match #touch #btn-nade,
+body.touch.v2match #touch #btn-flash { display: none !important; }
+body.touch.pov #btn-fire { width: 92px; height: 92px; right: calc(14px + env(safe-area-inset-right)); bottom: 18px; }
+body.touch.pov #btn-jump { right: calc(24px + env(safe-area-inset-right)); bottom: 122px; width: 62px; height: 62px; }
+body.touch.pov #btn-use { right: calc(24px + env(safe-area-inset-right)); bottom: 196px; width: 54px; height: 54px; }
+#utilbar:not(:has(.uslot:not(.hidden))) { border:0; padding:0; margin:0; }

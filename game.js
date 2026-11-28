@@ -373,6 +373,46 @@ function updateHotbar() {
     const sp = b.querySelector('span'); if (sp) sp.textContent = ammoStr;
   }
 }
+
+function nadeStock(kind) {
+  if (kind === 'mono') return online.survLo?.mono || player.nades?.mono || 0;
+  if (kind === 'frag' && online.survLo && online.survLo.frag != null) return online.survLo.frag;
+  return player.nades?.[kind] || 0;
+}
+function updateUtilBar() {
+  const bar = $('utilbar'); if (!bar) return;
+  const v2 = mode === 'online' && !online.legacy && (online.inMatch || !!online.local);
+  const items = [
+    ['util-nade', 'frag', v2],
+    ['util-flash', 'flash', v2],
+    ['util-mono', 'mono', true],
+  ];
+  for (const [id, kind, show] of items) {
+    const b = $(id); if (!b) continue;
+    const n = nadeStock(kind);
+    const vis = show && (kind === 'mono' ? n > 0 : v2);
+    b.classList.toggle('hidden', !vis);
+    if (vis) { b.dataset.n = n; const sp = b.querySelector('span'); if (sp) sp.textContent = n; b.classList.toggle('empty', n <= 0); b.disabled = n <= 0; }
+  }
+  if (!bar.dataset.ready) {
+    bar.dataset.ready = '1';
+    bar.addEventListener('pointerdown', (e) => {
+      const b = e.target.closest('.uslot'); if (!b || b.disabled) return;
+      e.preventDefault(); e.stopPropagation();
+      const kind = b.dataset.kind;
+      if (kind === 'mono') throwMono();
+      else useNade(kind);
+    });
+  }
+}
+function useNade(kind) {
+  if (nadeStock(kind) <= 0) return;
+  throwNade(kind);
+  if (kind === 'frag' && online.survLo && online.survLo.frag != null) online.survLo.frag = Math.max(0, online.survLo.frag - 1);
+  if (player.nades && player.nades[kind] > 0) player.nades[kind]--;
+  updateUtilBar();
+}
+
 function updateStatusFx() {
   const el = $('status-fx'); if (!el) return;
   const left = (player.spawnProtUntil || 0) - Date.now();
@@ -449,9 +489,8 @@ function hud() {
   if (document.body.classList.contains('v2match')) { const lv = level(); $('mm-lvn').textContent = 'LV ' + lv; $('mm-xpf').style.width = (lv >= 50 ? 100 : ((xp % 600) / 6)) + '%'; }
   $('ammo-w').textContent = player.reloadT > 0 ? 'RECARGANDO…' : (w.kind === 'arrow' && player.draw > 0 ? 'TENSANDO ' + Math.round(Math.min(1, player.draw / w.draw) * 100) + '%' : w.name.toUpperCase());
   updateHotbar();
+  updateUtilBar();
   updateStatusFx();
-  const nFrag = online.survLo?.frag ?? online.nades?.frag;
-  if (nFrag != null) $('btn-nade').dataset.n = nFrag;
 }
 function banner(text, t = 2) { $('banner').textContent = text; $('banner').classList.add('on'); bannerTimer = t; }
 function hitMarker() { $('hit-marker').classList.add('on'); hitTimer = 0.12; }
@@ -516,7 +555,8 @@ function updatePlayer(dt, speedMult = 1) {
   player.recoil = Math.max(0, player.recoil - dt * 6);
   // ADS (aim down sights): FOV zoom + gun to the centre; snipers switch to a scope overlay
   const w = curW(), adsRate = 1 / ((w.adsTime || 0.2) * (hasPerk('halcon') ? 0.6 : 1));
-  const wantAds = input.ads && player.alive && player.reloadT <= 0 && !player.sprint;
+  // Touch: no ADS button — auto-aim covers hip-fire. Snipers auto-scope while holding fire.
+  const wantAds = player.alive && player.reloadT <= 0 && !player.sprint && (IS_TOUCH ? (input.fire && w.cls === 'sniper') : input.ads);
   player.adsK = Math.max(0, Math.min(1, player.adsK + (wantAds ? dt : -dt) * adsRate));
   const fov = 75 + ((w.ads || 60) - 75) * player.adsK * (w.cls === 'sniper' ? (player.adsK > 0.85 ? 1 : 0.3) : 1);
   if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = fov; camera.updateProjectionMatrix(); }
@@ -526,7 +566,13 @@ function updatePlayer(dt, speedMult = 1) {
   if (player.reloadT > 0) {
     player.reloadT -= dt;
     if (player.reloadT <= 0) { player.ammo[player.reloadW] = WEAPONS[player.reloadW].mag || Infinity; player.reloadT = 0; }
-  }
+  } else if (IS_TOUCH && player.alive && !input.fire && !player.sprint) {
+    const wr = curW();
+    if (wr.mag && ammoOf(player.weapon) > 0 && ammoOf(player.weapon) < wr.mag) {
+      player.idleReload = (player.idleReload || 0) + dt;
+      if (player.idleReload >= 1) { startReload(); player.idleReload = 0; }
+    } else player.idleReload = 0;
+  } else player.idleReload = 0;
   const rk = player.reloadT > 0 ? Math.sin((1 - player.reloadT / player.reloadMax) * Math.PI) : 0;
   player.boltT = Math.max(0, player.boltT - dt);
   const bk = w.bolt && player.boltT > 0 ? Math.sin(Math.min(1, (1 - player.boltT / (w.fireRate * 0.8))) * Math.PI) : 0;
@@ -883,7 +929,7 @@ const online = {
         break;
       }
       case 'respawn':
-        if (m.id === this.id) { player.alive = true; player.hp = 100; player.pos.set(m.x, 0, m.z); player.vy = 0; player.yaw = m.z > map.l / 2 ? 0 : Math.PI; $('respawn-text').textContent = ''; grantSpawnProt(m.prot); }
+        if (m.id === this.id) { player.alive = true; player.hp = 100; player.pos.set(m.x, 0, m.z); player.vy = 0; player.yaw = m.z > map.l / 2 ? 0 : Math.PI; $('respawn-text').textContent = ''; grantSpawnProt(m.prot); player.nades = { frag: hasPerk('bolsillo') ? 2 : 1, flash: 1, mono: player.nades?.mono || 0 }; }
         break;
       case 'correct': player.pos.set(m.x, m.y, m.z); break;
       case 'score': this.board = m.board; if (m.sc) this.sc = m.sc; this.renderBoard(); break;
@@ -902,7 +948,7 @@ const online = {
     mode = 'online'; this.inMatch = true; clearSolo(); this.clearRemotes(); this.legacy = m.legacy ?? !m.mode; resetAmmo();
     buildWorld(m.map); this.endsAt = Date.now() + m.secondsLeft * 1000; this.board = m.board; this.renderBoard();
     Object.assign(player, { hp: 100, maxHp: 100, armor: 0, alive: true, vy: 0, pitch: 0, cd: 0 });
-    player.pos.set(m.spawn.x, 0, m.spawn.z); player.yaw = m.spawn.z > map.l / 2 ? 0 : Math.PI; grantSpawnProt(m.prot);
+    player.pos.set(m.spawn.x, 0, m.spawn.z); player.yaw = m.spawn.z > map.l / 2 ? 0 : Math.PI; grantSpawnProt(m.prot); player.nades = { frag: hasPerk('bolsillo') ? 2 : 1, flash: 1, mono: 0 };
     this.mode = m.mode || null; this.teamMode = !!m.teamMode; this.myTeam = m.team; this.scoreLimit = m.scoreLimit || 0; this.sc = [0, 0];
     this.uav = []; this.ready = new Set(); this.streakN = 0; this.obj = m.obj || null; renderStreakPrompt();
     player.weapon = availableWeapons()[0]; switchWeapon(0, player.weapon); $('wave-text').textContent = this.mode ? MODES[this.mode].name : 'DEATHMATCH';
@@ -2006,7 +2052,7 @@ $('btn-go-hq').onclick = () => { online.lastEnd = null; if (online.ws && !online
 $('btn-go-menu').onclick = () => goMenu();
 $('cluster-label').textContent = CLUSTER;
 $('controls-hint').textContent = IS_TOUCH
-  ? 'Controles: joystick izquierdo · arrastra a la derecha para mirar · disparar (el auto apunte se puede quitar en Ajustes) · saltar · toca un hueco del inventario para cambiar de arma'
+  ? 'Controles: joystick izquierdo · arrastra a la derecha para mirar · disparar (auto apunte al pulsar fuego; se puede quitar en Ajustes) · saltar · toca un hueco del inventario para cambiar de arma o lanzar granadas'
   : 'Controles: WASD moverte · ratón apuntar (clic para capturar) · clic disparar · Espacio saltar · Q / 1-6 arma · B tienda · auto apunte en Ajustes · ↑↓ Enter en el menú';
 renderMapList(); refreshUserChips();
 buildWorld(mapId);
